@@ -1,0 +1,20 @@
+# deps / build
+node_modules/
+dist/
+coverage/
+
+# env
+.env
+.env.local
+
+# logs
+*.log
+logs/
+
+# os / editor
+.DS_Store
+.vscode/
+.idea/
+
+# k6 output
+*.jsonl
