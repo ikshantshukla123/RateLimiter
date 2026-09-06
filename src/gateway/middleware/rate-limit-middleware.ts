@@ -37,9 +37,8 @@ export function resolveKey(req: Request, keyBy: KeySource = 'ip'): string {
       break;
   }
   // Default / fallback: IP. req.ip is Express-aware (trust proxy settings).
-  const ip = req.ip ?? req.socket?.remoteAddress ?? 'unknown';
-  if (keyBy === 'route') return `route:${req.path}`;
   // Combine route + identity so one abusive route does not starve others.
+  const ip = req.ip ?? req.socket?.remoteAddress ?? 'unknown';
   return `${keyBy}:${ip}:${req.path}`;
 }
 
