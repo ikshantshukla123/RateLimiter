@@ -1,5 +1,6 @@
 import type { RateLimitResult, TokenBucketRule } from '../core/types';
 import type { Store } from '../stores/store';
+import { TOKEN_BUCKET_LUA } from './lua';
 
 interface TokenBucketState {
   tokens: number;
@@ -11,6 +12,11 @@ async function runExclusive<T>(store: Store, key: string, fn: () => Promise<T>):
   return fn();
 }
 
+function parseLuaResult(raw: unknown): RateLimitResult {
+  const [allowed, remaining, resetMs, retryAfterMs, limit] = (raw as Array<string | number>).map(Number);
+  return { allowed: allowed === 1, remaining, resetMs, retryAfterMs, limit, algorithm: 'token-bucket' };
+}
+
 /**
  * Token Bucket.
  *
@@ -18,13 +24,17 @@ async function runExclusive<T>(store: Store, key: string, fn: () => Promise<T>):
  *   tokens  = min(capacity, tokens + elapsed * refillRate)
  *   allow iff tokens >= 1 (then tokens -= 1)
  *
- * Allows controlled bursts up to `capacity` while enforcing the average
- * `refillRatePerSec`. One of the two main production/demo algorithms.
+ * Memory path uses a per-key mutex; Redis path runs TOKEN_BUCKET_LUA so the
+ * refill/check/update cycle is one atomic step across gateway instances.
  */
 export class TokenBucketAlgorithm {
   readonly name = 'token-bucket' as const;
 
   async tryConsume(key: string, rule: TokenBucketRule, store: Store, now = Date.now()): Promise<RateLimitResult> {
+    if (store.evaluate) {
+      const raw = await store.evaluate(TOKEN_BUCKET_LUA, [key], [now, rule.capacity, rule.refillRatePerSec]);
+      return parseLuaResult(raw);
+    }
     return runExclusive(store, key, async () => {
       const prev = await store.get<TokenBucketState>(key);
       const tokensBefore = prev?.tokens ?? rule.capacity;

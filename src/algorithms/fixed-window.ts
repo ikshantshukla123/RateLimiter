@@ -1,5 +1,6 @@
 import type { FixedWindowRule, RateLimitResult } from '../core/types';
 import type { Store } from '../stores/store';
+import { FIXED_WINDOW_LUA } from './lua';
 
 interface FixedWindowState {
   count: number;
@@ -11,20 +12,35 @@ async function runExclusive<T>(store: Store, key: string, fn: () => Promise<T>):
   return fn();
 }
 
+function parseLuaResult(raw: unknown, algorithm: 'fixed-window'): RateLimitResult {
+  const [allowed, remaining, resetMs, retryAfterMs, limit] = (raw as Array<string | number>).map(Number);
+  return {
+    allowed: allowed === 1,
+    remaining,
+    resetMs,
+    retryAfterMs,
+    limit,
+    algorithm,
+  };
+}
+
 /**
  * Fixed Window Counter.
  *
  *   windowStart = floor(now / windowMs) * windowMs
  *   count++ ; allow iff count <= limit
  *
- * Simple and cheap. Demonstrates the boundary-burst artifact: a client can
- * consume `limit` at the end of window N and `limit` again at the start of
- * window N+1 (≈2×limit in ~one window span).
+ * Memory path uses a per-key mutex; Redis path runs FIXED_WINDOW_LUA
+ * atomically so increment + expiry + decision never split across instances.
  */
 export class FixedWindowAlgorithm {
   readonly name = 'fixed-window' as const;
 
   async tryConsume(key: string, rule: FixedWindowRule, store: Store, now = Date.now()): Promise<RateLimitResult> {
+    if (store.evaluate) {
+      const raw = await store.evaluate(FIXED_WINDOW_LUA, [key], [now, rule.windowMs, rule.limit]);
+      return parseLuaResult(raw, this.name);
+    }
     return runExclusive(store, key, async () => {
       const windowStart = Math.floor(now / rule.windowMs) * rule.windowMs;
       const resetMs = windowStart + rule.windowMs;
