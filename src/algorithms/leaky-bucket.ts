@@ -24,7 +24,12 @@ async function runExclusive<T>(store: Store, key: string, fn: () => Promise<T>):
 export class LeakyBucketAlgorithm {
   readonly name = 'leaky-bucket' as const;
 
-  async tryConsume(key: string, rule: LeakyBucketRule, store: Store, now = Date.now()): Promise<RateLimitResult> {
+  async tryConsume(
+    key: string,
+    rule: LeakyBucketRule,
+    store: Store,
+    now = Date.now(),
+  ): Promise<RateLimitResult> {
     if (store.evaluate) {
       const [allowed, remaining, resetMs, retryAfterMs, limit] = (
         (await store.evaluate(LEAKY_BUCKET_LUA, [key], [now, rule.capacity, rule.leakRatePerSec])) as Array<

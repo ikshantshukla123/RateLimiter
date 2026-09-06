@@ -14,7 +14,11 @@ describe('concurrency correctness (in-process race check)', () => {
   const cases: Array<{ name: string; rule: RateLimitRule; limit: number }> = [
     { name: 'fixed-window', rule: { algorithm: 'fixed-window', limit: 10, windowMs: 60_000 }, limit: 10 },
     { name: 'sliding-window', rule: { algorithm: 'sliding-window', limit: 10, windowMs: 60_000 }, limit: 10 },
-    { name: 'token-bucket', rule: { algorithm: 'token-bucket', capacity: 10, refillRatePerSec: 1 }, limit: 10 },
+    {
+      name: 'token-bucket',
+      rule: { algorithm: 'token-bucket', capacity: 10, refillRatePerSec: 1 },
+      limit: 10,
+    },
     { name: 'leaky-bucket', rule: { algorithm: 'leaky-bucket', capacity: 10, leakRatePerSec: 1 }, limit: 10 },
   ];
 

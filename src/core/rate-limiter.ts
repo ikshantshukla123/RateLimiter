@@ -140,7 +140,12 @@ export class RateLimiter {
             { from: this.store.name, to: this.fallbackStore.name, key: storeKey },
             'rate-limiter degraded fallback engaged',
           );
-          this.onFallback?.({ from: this.store.name, to: this.fallbackStore.name, key: storeKey, error: err });
+          this.onFallback?.({
+            from: this.store.name,
+            to: this.fallbackStore.name,
+            key: storeKey,
+            error: err,
+          });
           return result;
         } catch (fallbackErr) {
           this.logger?.error(

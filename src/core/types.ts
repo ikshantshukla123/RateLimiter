@@ -116,7 +116,12 @@ export interface CheckInput {
  */
 export interface Algorithm<TRule extends RateLimitRule = RateLimitRule> {
   readonly name: AlgorithmName;
-  tryConsume(key: string, rule: TRule, store: import('../stores/store').Store, now?: number): Promise<RateLimitResult>;
+  tryConsume(
+    key: string,
+    rule: TRule,
+    store: import('../stores/store').Store,
+    now?: number,
+  ): Promise<RateLimitResult>;
 }
 
 export function getRuleLimit(rule: RateLimitRule): number {

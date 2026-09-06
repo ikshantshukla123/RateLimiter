@@ -113,9 +113,7 @@ describe('failure behavior', () => {
         timeoutMs: 50,
       }),
     );
-    const results = await Promise.all(
-      Array.from({ length: 10 }, () => limiter.check({ key: 'same', rule })),
-    );
+    const results = await Promise.all(Array.from({ length: 10 }, () => limiter.check({ key: 'same', rule })));
     // Memory fallback serializes via mutex: exactly 5 allowed, not 10, not 0.
     expect(results.filter((r) => r.allowed).length).toBe(5);
     await fallback.close();

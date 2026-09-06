@@ -36,7 +36,12 @@ function parseLuaResult(raw: unknown, algorithm: 'fixed-window'): RateLimitResul
 export class FixedWindowAlgorithm {
   readonly name = 'fixed-window' as const;
 
-  async tryConsume(key: string, rule: FixedWindowRule, store: Store, now = Date.now()): Promise<RateLimitResult> {
+  async tryConsume(
+    key: string,
+    rule: FixedWindowRule,
+    store: Store,
+    now = Date.now(),
+  ): Promise<RateLimitResult> {
     if (store.evaluate) {
       const raw = await store.evaluate(FIXED_WINDOW_LUA, [key], [now, rule.windowMs, rule.limit]);
       return parseLuaResult(raw, this.name);

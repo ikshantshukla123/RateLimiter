@@ -30,7 +30,12 @@ function parseLuaResult(raw: unknown): RateLimitResult {
 export class TokenBucketAlgorithm {
   readonly name = 'token-bucket' as const;
 
-  async tryConsume(key: string, rule: TokenBucketRule, store: Store, now = Date.now()): Promise<RateLimitResult> {
+  async tryConsume(
+    key: string,
+    rule: TokenBucketRule,
+    store: Store,
+    now = Date.now(),
+  ): Promise<RateLimitResult> {
     if (store.evaluate) {
       const raw = await store.evaluate(TOKEN_BUCKET_LUA, [key], [now, rule.capacity, rule.refillRatePerSec]);
       return parseLuaResult(raw);

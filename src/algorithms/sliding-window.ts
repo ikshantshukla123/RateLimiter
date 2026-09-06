@@ -25,7 +25,12 @@ async function runExclusive<T>(store: Store, key: string, fn: () => Promise<T>):
 export class SlidingWindowAlgorithm {
   readonly name = 'sliding-window' as const;
 
-  async tryConsume(key: string, rule: SlidingWindowRule, store: Store, now = Date.now()): Promise<RateLimitResult> {
+  async tryConsume(
+    key: string,
+    rule: SlidingWindowRule,
+    store: Store,
+    now = Date.now(),
+  ): Promise<RateLimitResult> {
     if (store.evaluate) {
       const [allowed, remaining, resetMs, retryAfterMs, limit] = (
         (await store.evaluate(SLIDING_WINDOW_LUA, [key], [now, rule.windowMs, rule.limit])) as Array<

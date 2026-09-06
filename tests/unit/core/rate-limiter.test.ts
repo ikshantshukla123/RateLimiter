@@ -15,8 +15,12 @@ describe('Phase 1 core contracts', () => {
     expect(() =>
       RateLimiter.validateRule({ algorithm: 'token-bucket', capacity: 10, refillRatePerSec: 1 }),
     ).not.toThrow();
-    expect(() => RateLimiter.validateRule({ algorithm: 'fixed-window', limit: 0, windowMs: 1000 } as any)).toThrow();
-    expect(() => RateLimiter.validateRule({ algorithm: 'token-bucket', capacity: 10, refillRatePerSec: 0 } as any)).toThrow();
+    expect(() =>
+      RateLimiter.validateRule({ algorithm: 'fixed-window', limit: 0, windowMs: 1000 } as any),
+    ).toThrow();
+    expect(() =>
+      RateLimiter.validateRule({ algorithm: 'token-bucket', capacity: 10, refillRatePerSec: 0 } as any),
+    ).toThrow();
     expect(() => RateLimiter.validateRule({ algorithm: 'nope' } as any)).toThrow();
   });
 });

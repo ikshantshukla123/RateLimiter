@@ -53,7 +53,10 @@ function resolveRule(req: Request, options: RateLimitMiddlewareOptions): RateLim
   return options.defaultRule;
 }
 
-function setRateLimitHeaders(res: Response, result: { limit: number; remaining: number; resetMs: number }): void {
+function setRateLimitHeaders(
+  res: Response,
+  result: { limit: number; remaining: number; resetMs: number },
+): void {
   res.setHeader('X-RateLimit-Limit', String(result.limit));
   res.setHeader('X-RateLimit-Remaining', String(result.remaining));
   res.setHeader('X-RateLimit-Reset', String(Math.ceil(result.resetMs / 1000)));

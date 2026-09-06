@@ -26,7 +26,11 @@ describe('Redis-backed algorithms (Lua atomicity)', () => {
   const cases: Array<{ name: string; rule: RateLimitRule; limit: number }> = [
     { name: 'fixed-window', rule: { algorithm: 'fixed-window', limit: 10, windowMs: 60_000 }, limit: 10 },
     { name: 'sliding-window', rule: { algorithm: 'sliding-window', limit: 10, windowMs: 60_000 }, limit: 10 },
-    { name: 'token-bucket', rule: { algorithm: 'token-bucket', capacity: 10, refillRatePerSec: 1 }, limit: 10 },
+    {
+      name: 'token-bucket',
+      rule: { algorithm: 'token-bucket', capacity: 10, refillRatePerSec: 1 },
+      limit: 10,
+    },
     { name: 'leaky-bucket', rule: { algorithm: 'leaky-bucket', capacity: 10, leakRatePerSec: 1 }, limit: 10 },
   ];
 
@@ -42,9 +46,7 @@ describe('Redis-backed algorithms (Lua atomicity)', () => {
       );
       const key = `it:${name}:${Date.now()}`;
       const now = Date.now();
-      const results = await Promise.all(
-        Array.from({ length: 30 }, () => limiter.check({ key, rule, now })),
-      );
+      const results = await Promise.all(Array.from({ length: 30 }, () => limiter.check({ key, rule, now })));
       expect(results.filter((r) => r.allowed).length).toBe(limit);
       await store.delete(`rl:${key}`).catch(() => undefined);
       await store.delete(key).catch(() => undefined);
