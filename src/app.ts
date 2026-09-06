@@ -3,29 +3,29 @@ import { registerAllAlgorithms } from './algorithms';
 import { loadConfig } from './config';
 import { RateLimiter } from './core/rate-limiter';
 import { createServer } from './gateway/server';
+import { withMetrics } from './observability/instrumented-store';
 import { logger } from './observability/logger';
+import { PrometheusMetrics } from './observability/metrics';
 import { MemoryStore } from './stores/memory-store';
 import { RedisStore } from './stores/redis-store';
 import type { Store } from './stores/store';
 
 const config = loadConfig();
+const metrics = new PrometheusMetrics();
 
 // Store topology (agent.md §12):
 //   USE_REDIS=true  -> Redis primary (fleet-wide) + MemoryStore degraded fallback.
 //   otherwise       -> single-instance MemoryStore (local dev / tests).
-// Either way a slow dependency is bounded by `storeTimeoutMs` and the failure
-// mode stays explicit (fail-open vs fail-closed).
+// Stores are wrapped so every operation feeds
+// rate_limiter_store_operations_total / _errors_total.
 const useRedis = (process.env.USE_REDIS ?? 'false').toLowerCase() === 'true';
 
-let primary: Store;
-let fallback: Store | undefined;
-if (useRedis) {
-  primary = new RedisStore({ redisUrl: config.redisUrl });
-  fallback = new MemoryStore();
-  logger.info({ redisUrl: '<redacted>', fallback: 'memory' }, 'using Redis primary with memory fallback');
-} else {
-  primary = new MemoryStore();
-}
+const rawPrimary: Store = useRedis ? new RedisStore({ redisUrl: config.redisUrl }) : new MemoryStore();
+const rawFallback: Store | undefined = useRedis ? new MemoryStore() : undefined;
+if (useRedis) logger.info({ fallback: 'memory' }, 'using Redis primary with memory fallback');
+
+const primary = withMetrics(rawPrimary, metrics);
+const fallback = rawFallback ? withMetrics(rawFallback, metrics) : undefined;
 
 const limiter = registerAllAlgorithms(
   new RateLimiter({
@@ -36,10 +36,11 @@ const limiter = registerAllAlgorithms(
     timeoutMs: config.storeTimeoutMs,
     enableFallback: config.enableFallback && !!fallback,
     logger,
+    onFallback: (e) => metrics.observeFallback(e.from, e.to),
   }),
 );
 
-const app = createServer({ limiter, backendUrl: config.backendUrl, enableProxy: false });
+const app = createServer({ limiter, backendUrl: config.backendUrl, enableProxy: false, metrics });
 
 if (require.main === module) {
   app.listen(config.port, () => {
@@ -48,6 +49,6 @@ if (require.main === module) {
 }
 
 export default app;
-export { config, limiter };
+export { config, limiter, metrics };
 export const store = primary;
 export const fallbackStore = fallback;

@@ -1,6 +1,7 @@
 import express from 'express';
 import type { RateLimiter } from '../core/rate-limiter';
 import type { MetricsRecorder } from '../observability/metrics';
+import { PrometheusMetrics } from '../observability/metrics';
 import { mountProxy } from './proxy/proxy';
 import { buildRoutes } from './routes';
 
@@ -21,6 +22,23 @@ export function createServer(options: ServerOptions = {}): express.Express {
   }
 
   app.use('/', buildRoutes({ limiter: options.limiter, metrics: options.metrics }));
+
+  // Prometheus scrape target. Never rate-limited; placed after buildRoutes on
+  // purpose (buildRoutes only limits /api/*) but registered before 404.
+  app.get('/metrics', async (_req, res, next) => {
+    try {
+      if (options.metrics instanceof PrometheusMetrics) {
+        const { contentType, body } = await options.metrics.exposition();
+        res.setHeader('Content-Type', contentType);
+        res.send(body);
+      } else {
+        res.setHeader('Content-Type', 'text/plain; version=0.0.4');
+        res.send('# no prometheus registry configured\n');
+      }
+    } catch (err) {
+      next(err);
+    }
+  });
 
   // 404 + error handler (kept last).
   app.use((_req, res) => {
