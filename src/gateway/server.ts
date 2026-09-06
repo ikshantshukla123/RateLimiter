@@ -1,5 +1,7 @@
 import express from 'express';
+import pinoHttp from 'pino-http';
 import type { RateLimiter } from '../core/rate-limiter';
+import { logger } from '../observability/logger';
 import type { MetricsRecorder } from '../observability/metrics';
 import { PrometheusMetrics } from '../observability/metrics';
 import { mountProxy } from './proxy/proxy';
@@ -16,6 +18,8 @@ export function createServer(options: ServerOptions = {}): express.Express {
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json());
+  // Structured JSON request logs (silent in tests via logger).
+  app.use(pinoHttp({ logger }));
 
   if (options.enableProxy && options.backendUrl) {
     mountProxy(app, options.backendUrl);
