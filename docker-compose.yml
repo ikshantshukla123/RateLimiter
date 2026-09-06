@@ -1,0 +1,68 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: rl-redis
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    image: hashicorp/http-echo:0.2.3
+    container_name: rl-backend
+    command: ['-listen=:5678', '-text=dummy backend ok']
+    ports:
+      - '3001:5678'
+
+  gateway:
+    build: .
+    container_name: rl-gateway
+    ports:
+      - '3000:3000'
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      USE_REDIS: 'true'
+      REDIS_URL: redis://redis:6379
+      BACKEND_URL: http://backend:5678
+      STORE_TIMEOUT_MS: 150
+      FAILURE_MODE: fail-closed
+      ENABLE_FALLBACK: 'true'
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: rl-prometheus
+    ports:
+      - '9090:9090'
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - gateway
+
+  grafana:
+    image: grafana/grafana-oss:11.1.0
+    container_name: rl-grafana
+    ports:
+      - '3002:3000'
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
+volumes:
+  redis-data:
