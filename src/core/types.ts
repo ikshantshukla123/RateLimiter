@@ -69,6 +69,19 @@ export interface RateLimitResult {
 /** Injectable clock for testability (defaults to Date.now). */
 export type Clock = () => number;
 
+/** Minimal structured logger core depends on (pino satisfies this; no pino import here). */
+export interface DegradationLogger {
+  warn(obj: unknown, msg?: string): void;
+  error(obj: unknown, msg?: string): void;
+}
+
+export interface FallbackEvent {
+  from: string;
+  to: string;
+  key: string;
+  error: unknown;
+}
+
 export interface RateLimiterOptions {
   store: import('../stores/store').Store;
   /** Used when the primary store fails and `enableFallback` is true. */
@@ -81,6 +94,10 @@ export interface RateLimiterOptions {
   /** Enable in-memory fallback on primary failure. Default: false (set true in Phase 5 wiring). */
   enableFallback?: boolean;
   clock?: Clock;
+  /** Structured degradation logs (Redis down, fallback engaged). Default: silent. */
+  logger?: DegradationLogger;
+  /** Hook for metrics (Phase 6 wires fallback counters here). */
+  onFallback?: (event: FallbackEvent) => void;
 }
 
 export interface CheckInput {

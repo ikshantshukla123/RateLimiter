@@ -4,6 +4,8 @@ import {
   AlgorithmName,
   CheckInput,
   Clock,
+  DegradationLogger,
+  FallbackEvent,
   FailureMode,
   RateLimiterOptions,
   RateLimitResult,
@@ -15,8 +17,12 @@ import type { Store } from '../stores/store';
  * Reusable rate-limiting core. Independent of Express.
  *
  * Flow: check(key, rule) -> resolve algorithm -> atomic store transition
- *       -> Allow/Deny + metadata. On store failure: timeout -> fail-open /
- *       fail-closed (fallback wiring lands in Phase 5).
+ *       -> Allow/Deny + metadata.
+ * Failure path (explicit, Phase 5):
+ *   primary timeout/error -> warn log -> MemoryStore fallback (if enabled)
+ *   -> fail-open (allow, limit 0) or fail-closed (throw).
+ * A slow Redis can therefore never become the main request-latency source:
+ * every store call races against `timeoutMs`.
  */
 export class RateLimiter {
   private readonly store: Store;
@@ -26,6 +32,8 @@ export class RateLimiter {
   private readonly timeoutMs: number;
   private readonly enableFallback: boolean;
   private readonly clock: Clock;
+  private readonly logger?: DegradationLogger;
+  private readonly onFallback?: (event: FallbackEvent) => void;
   private readonly algorithms = new Map<AlgorithmName, Algorithm<any>>();
 
   constructor(options: RateLimiterOptions) {
@@ -37,6 +45,8 @@ export class RateLimiter {
     this.timeoutMs = options.timeoutMs ?? 150;
     this.enableFallback = options.enableFallback ?? false;
     this.clock = options.clock ?? Date.now;
+    this.logger = options.logger;
+    this.onFallback = options.onFallback;
   }
 
   registerAlgorithm<TRule extends RateLimitRule>(algorithm: Algorithm<TRule>): this {
@@ -114,18 +124,33 @@ export class RateLimiter {
         'tryConsume',
       );
     } catch (err) {
-      // Phase 5 adds degraded fallback (Redis -> MemoryStore) + structured logs.
-      // Phase 1/2 behavior: explicit fail-open / fail-closed only.
+      this.logger?.warn(
+        { primary: this.store.name, key: storeKey, error: err instanceof Error ? err.message : String(err) },
+        'rate-limiter primary store failed',
+      );
       if (this.enableFallback && this.fallbackStore) {
         try {
-          return await this.withTimeout(
+          const result = await this.withTimeout(
             algorithm.tryConsume(storeKey, rule, this.fallbackStore, now),
             this.timeoutMs,
             this.fallbackStore.name,
             'tryConsume(fallback)',
           );
-        } catch {
-          // fall through to failureMode below
+          this.logger?.warn(
+            { from: this.store.name, to: this.fallbackStore.name, key: storeKey },
+            'rate-limiter degraded fallback engaged',
+          );
+          this.onFallback?.({ from: this.store.name, to: this.fallbackStore.name, key: storeKey, error: err });
+          return result;
+        } catch (fallbackErr) {
+          this.logger?.error(
+            {
+              primary: this.store.name,
+              fallback: this.fallbackStore.name,
+              error: fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr),
+            },
+            'rate-limiter fallback store also failed',
+          );
         }
       }
       if (this.failureMode === 'fail-open') {
