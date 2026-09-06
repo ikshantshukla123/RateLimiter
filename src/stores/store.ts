@@ -28,5 +28,13 @@ export interface Store {
    */
   evaluate?(script: string, keys: string[], args: Array<string | number>): Promise<unknown>;
 
+  /**
+   * Run `fn` exclusively per key (in-memory mutex). Algorithms wrap their
+   * read-modify-write in this when available so concurrent `Promise.all`
+   * checks on one Node process cannot interleave and lose counts.
+   * Redis paths use Lua instead and may omit this.
+   */
+  runExclusive?<T>(key: string, fn: () => Promise<T>): Promise<T>;
+
   close?(): Promise<void>;
 }
