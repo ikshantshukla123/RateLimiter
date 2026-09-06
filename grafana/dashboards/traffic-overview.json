@@ -1,0 +1,50 @@
+{
+  "title": "Rate Limiter - Traffic Overview",
+  "uid": "rl-traffic",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Total request rate",
+      "targets": [{ "expr": "sum(rate(rate_limiter_decisions_total[1m]))", "legendFormat": "total" }]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Allowed rate",
+      "targets": [{ "expr": "sum(rate(rate_limiter_decisions_total{decision=\"allow\"}[1m]))", "legendFormat": "allowed" }]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Denied rate (429s)",
+      "targets": [{ "expr": "sum(rate(rate_limiter_decisions_total{decision=\"deny\"}[1m]))", "legendFormat": "denied" }]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Denial rate",
+      "targets": [
+        {
+          "expr": "sum(rate(rate_limiter_decisions_total{decision=\"deny\"}[5m])) / clamp_min(sum(rate(rate_limiter_decisions_total[5m])), 0.0001)",
+          "legendFormat": "denial ratio"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Decisions by route",
+      "targets": [{ "expr": "sum by (route, decision) (rate(rate_limiter_decisions_total[1m]))", "legendFormat": "{{route}} {{decision}}" }]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Decisions by algorithm",
+      "targets": [{ "expr": "sum by (algorithm, decision) (rate(rate_limiter_decisions_total[1m]))", "legendFormat": "{{algorithm}} {{decision}}" }]
+    }
+  ]
+}

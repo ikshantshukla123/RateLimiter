@@ -1,0 +1,49 @@
+{
+  "title": "Rate Limiter - Health",
+  "uid": "rl-health",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Decision latency p95",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, algorithm) (rate(rate_limiter_latency_seconds_bucket[5m])))",
+          "legendFormat": "p95 {{algorithm}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Decision latency p99",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, algorithm) (rate(rate_limiter_latency_seconds_bucket[5m])))",
+          "legendFormat": "p99 {{algorithm}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Store errors",
+      "targets": [{ "expr": "sum by (store, operation) (rate(rate_limiter_store_errors_total[1m]))", "legendFormat": "{{store}} {{operation}}" }]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Store operations",
+      "targets": [{ "expr": "sum by (store, operation, status) (rate(rate_limiter_store_operations_total[1m]))", "legendFormat": "{{store}} {{operation}} {{status}}" }]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Fallback events",
+      "targets": [{ "expr": "sum by (from, to) (rate(rate_limiter_fallback_total[1m]))", "legendFormat": "{{from}} -> {{to}}" }]
+    }
+  ]
+}

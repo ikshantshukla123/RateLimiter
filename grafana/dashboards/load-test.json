@@ -1,0 +1,38 @@
+{
+  "title": "Rate Limiter - Load Test",
+  "uid": "rl-load",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Allowed vs denied during load",
+      "targets": [{ "expr": "sum by (decision) (rate(rate_limiter_decisions_total[30s]))", "legendFormat": "{{decision}}" }]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Top blocked routes (no high-cardinality labels)",
+      "targets": [{ "expr": "topk(5, sum by (route) (rate(rate_limiter_decisions_total{decision=\"deny\"}[1m])))", "legendFormat": "{{route}}" }]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Latency during load",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(rate_limiter_latency_seconds_bucket[1m])))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Fallbacks during load",
+      "targets": [{ "expr": "sum(increase(rate_limiter_fallback_total[10m]))", "legendFormat": "fallbacks" }]
+    }
+  ]
+}
