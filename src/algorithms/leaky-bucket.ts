@@ -1,5 +1,6 @@
 import type { LeakyBucketRule, RateLimitResult } from '../core/types';
 import type { Store } from '../stores/store';
+import { LEAKY_BUCKET_LUA } from './lua';
 
 interface LeakyBucketState {
   level: number;
@@ -24,6 +25,14 @@ export class LeakyBucketAlgorithm {
   readonly name = 'leaky-bucket' as const;
 
   async tryConsume(key: string, rule: LeakyBucketRule, store: Store, now = Date.now()): Promise<RateLimitResult> {
+    if (store.evaluate) {
+      const [allowed, remaining, resetMs, retryAfterMs, limit] = (
+        (await store.evaluate(LEAKY_BUCKET_LUA, [key], [now, rule.capacity, rule.leakRatePerSec])) as Array<
+          string | number
+        >
+      ).map(Number);
+      return { allowed: allowed === 1, remaining, resetMs, retryAfterMs, limit, algorithm: this.name };
+    }
     return runExclusive(store, key, async () => {
       const prev = await store.get<LeakyBucketState>(key);
       const prevLevel = prev?.level ?? 0;

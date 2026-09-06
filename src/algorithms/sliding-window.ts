@@ -1,5 +1,6 @@
 import type { RateLimitResult, SlidingWindowRule } from '../core/types';
 import type { Store } from '../stores/store';
+import { SLIDING_WINDOW_LUA } from './lua';
 
 interface SlidingWindowState {
   currentCount: number;
@@ -25,6 +26,14 @@ export class SlidingWindowAlgorithm {
   readonly name = 'sliding-window' as const;
 
   async tryConsume(key: string, rule: SlidingWindowRule, store: Store, now = Date.now()): Promise<RateLimitResult> {
+    if (store.evaluate) {
+      const [allowed, remaining, resetMs, retryAfterMs, limit] = (
+        (await store.evaluate(SLIDING_WINDOW_LUA, [key], [now, rule.windowMs, rule.limit])) as Array<
+          string | number
+        >
+      ).map(Number);
+      return { allowed: allowed === 1, remaining, resetMs, retryAfterMs, limit, algorithm: this.name };
+    }
     return runExclusive(store, key, async () => {
       const currentWindowStart = Math.floor(now / rule.windowMs) * rule.windowMs;
       const prev = await store.get<SlidingWindowState>(key);
