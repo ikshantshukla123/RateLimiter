@@ -13,11 +13,7 @@ import type { Store } from './stores/store';
 const config = loadConfig();
 const metrics = new PrometheusMetrics();
 
-// Store topology (agent.md §12):
-//   USE_REDIS=true  -> Redis primary (fleet-wide) + MemoryStore degraded fallback.
-//   otherwise       -> single-instance MemoryStore (local dev / tests).
-// Stores are wrapped so every operation feeds
-// rate_limiter_store_operations_total / _errors_total.
+
 const useRedis = (process.env.USE_REDIS ?? 'false').toLowerCase() === 'true';
 
 const rawPrimary: Store = useRedis ? new RedisStore({ redisUrl: config.redisUrl }) : new MemoryStore();
@@ -40,7 +36,7 @@ const limiter = registerAllAlgorithms(
   }),
 );
 
-const app = createServer({ limiter, backendUrl: config.backendUrl, enableProxy: false, metrics });
+const app = createServer({ limiter, backendUrl: config.backendUrl, enableProxy: true, metrics });
 
 if (require.main === module) {
   app.listen(config.port, () => {

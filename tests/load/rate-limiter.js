@@ -1,6 +1,10 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 
+// 429 is the *correct* outcome for a rate limiter, not a failure. Without this,
+// k6 scores every denial as an http_req_failed and the threshold can never pass.
+http.setResponseCallback(http.expectedStatuses({ min: 200, max: 299 }, 429));
+
 /**
  * k6 load suite for the rate-limiter gateway.
  *
