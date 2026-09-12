@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dashboard — RateLimit Lab</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      fontFamily: {
+        nunito: ['Nunito','sans-serif'],
+        poppins: ['Poppins','sans-serif'],
+        lato: ['Lato','sans-serif'],
+        alkatra: ['Alkatra','sans-serif'],
+      },
+    }
+  }
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&family=Poppins:wght@300;400;500;600&family=Lato:ital,wght@0,700;0,900;1,900&family=Alkatra:wght@700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --color-text-primary:#1A1A1A; --color-text-secondary:#424242; --color-text-muted:#666666;
+    --color-bg-page:#F8F8F8; --color-border:#C6C6C6;
+    --radius-card:16px; --container-max:1400px;
+  }
+  html{ scroll-behavior:smooth; }
+  body{ font-family:Nunito,sans-serif; background:var(--color-bg-page); color:var(--color-text-primary); -webkit-font-smoothing:antialiased; overflow-x:clip; }
+  .container-x{ max-width:var(--container-max); margin:0 auto; padding:0 40px; }
+  @media (max-width:768px){ .container-x{ padding:0 16px; } }
+  .font-poppins{ font-family:Poppins,sans-serif; }
+  .tabular{ font-variant-numeric:tabular-nums; }
+
+  .navbar{ position:sticky; top:0; z-index:100; width:100%; background:var(--color-bg-page); padding-top:22px; padding-bottom:10px; border-bottom:1px solid #E7E7E7; }
+  .navbar__container{ display:flex; align-items:center; justify-content:space-between; min-height:72px; width:100%; max-width:1400px; margin:0 auto; padding-left:20px; padding-right:40px; gap:16px; }
+  .navbar__brand{ display:flex; align-items:center; gap:12px; text-decoration:none; }
+  .navbar__logo-icon{ width:52px; height:52px; border-radius:11px; background:#1A1A1A; color:#fff; display:grid; place-items:center; font-family:Lato,sans-serif; font-weight:900; font-size:24px; }
+  .navbar__brand-text{ font-family:Lato,sans-serif; font-size:30px; font-weight:800; color:#111; line-height:1.1; }
+  .navbar__brand-text small{ display:block; font-family:Poppins,sans-serif; font-weight:400; font-size:12px; color:#666; }
+  .navbar__nav-list{ display:flex; align-items:center; gap:40px; margin:0; padding:0; list-style:none; }
+  .navbar__nav-link{ font-family:Poppins,sans-serif; font-size:17px; font-weight:400; color:#111; text-decoration:none; white-space:nowrap; padding-bottom:4px; }
+  .navbar__nav-link:hover{ opacity:.55; }
+  .navbar__nav-link.active{ font-weight:600; border-bottom:3px solid #1A1A1A; }
+  .navbar__cta{ padding:12px 32px; background:#1f1f1f; color:#fff; font-family:Poppins,sans-serif; font-size:15px; font-weight:700; border:none; border-radius:13px; cursor:pointer; text-decoration:none; display:inline-block; }
+  .navbar__cta:hover{ opacity:.88; }
+  @media (max-width:900px){ .navbar__nav{ display:none; } .navbar__brand-text{ font-size:24px; } }
+
+  .page-title{ font-family:Poppins,sans-serif; font-size:clamp(32px,4.5vw,56px); font-weight:600; line-height:120%; color:#1F1F1F; }
+  .page-title .highlight{ font-family:Lato,sans-serif; font-style:italic; font-weight:900; }
+  .page-sub{ font-family:Poppins,sans-serif; font-weight:300; font-size:clamp(15px,1.8vw,20px); color:#424242; margin-top:8px; }
+
+  .card{ background:#fff; border-radius:var(--radius-card); box-shadow:0 2px 12px rgba(0,0,0,.06); border:1px solid #ECECEC; }
+  .card-pad{ padding:clamp(20px,2.2vw,28px); }
+  .kpi-label{ font-family:Poppins,sans-serif; font-size:12px; font-weight:500; letter-spacing:.12em; text-transform:uppercase; color:#666; }
+  .kpi-value{ font-family:Poppins,sans-serif; font-weight:600; font-size:clamp(30px,3vw,42px); line-height:1.1; color:#1A1A1A; }
+  .kpi-sub{ font-size:13.5px; color:#666; font-weight:500; }
+  .pill{ display:inline-flex; align-items:center; gap:6px; border:1.5px solid #1F1F1F; background:#fff; color:#111; border-radius:100px; padding:8px 18px; font-size:13.5px; font-weight:700; font-family:Poppins,sans-serif; }
+  .pill--dark{ background:#1F1F1F; color:#fff; }
+  .pill--soft{ border-color:#C6C6C6; }
+
+  .resil-row{ display:flex; justify-content:space-between; align-items:center; padding:13px 0; border-top:1px solid #EDEDED; font-size:14.5px; }
+  .resil-row:first-child{ border-top:none; }
+  .resil-k{ font-family:Poppins,sans-serif; color:#666; font-weight:500; }
+  .resil-v{ font-family:Poppins,sans-serif; font-weight:600; color:#111; }
+
+  /* ── Live log sidebar ── */
+  .log-sidebar{ position:sticky; top:130px; max-height:calc(100vh - 150px); display:flex; flex-direction:column; overflow:hidden; }
+  .log-feed{ overflow-y:auto; flex:1; min-height:0; }
+  .log-item{ padding:13px 18px; border-top:1px solid #EDEDED; }
+  .log-item:first-child{ border-top:none; }
+  .log-top{ display:flex; align-items:center; gap:8px; margin-bottom:5px; }
+  .log-time{ font-size:12px; color:#999; font-weight:600; }
+  .log-route{ font-family:Poppins,sans-serif; font-weight:600; font-size:14.5px; color:#111; }
+  .log-meta{ font-size:12.5px; color:#666; margin-top:3px; }
+  .verdict-allow{ display:inline-block; padding:2px 12px; border-radius:100px; font-size:11px; font-weight:800; background:#1A1A1A; color:#fff; letter-spacing:.04em; }
+  .verdict-deny{ display:inline-block; padding:2px 12px; border-radius:100px; font-size:11px; font-weight:800; background:#fff; color:#111; border:1.5px solid #111; letter-spacing:.04em; }
+  .fb-tag{ font-size:10.5px; font-weight:800; background:#1A1A1A; color:#fff; border-radius:6px; padding:2px 7px; letter-spacing:.05em; }
+  .live-dot{ width:10px; height:10px; border-radius:50%; background:#1A1A1A; display:inline-block; animation:pulse 1.6s infinite; }
+  @keyframes pulse{ 0%,100%{opacity:1} 50%{opacity:.3} }
+  ::-webkit-scrollbar{ width:8px; } ::-webkit-scrollbar-thumb{ background:#C6C6C6; border-radius:8px; }
+</style>
+</head>
+<body>
+
+  <!-- ══════════ NAVBAR ══════════ -->
+  <nav class="navbar">
+    <div class="navbar__container">
+      <a class="navbar__brand" href="/lab">
+        <span class="navbar__logo-icon">≋</span>
+        <span class="navbar__brand-text">RateLimit Lab<small>distributed limiter · live simulator</small></span>
+      </a>
+      <div class="navbar__nav">
+        <ul class="navbar__nav-list">
+          <li><a class="navbar__nav-link" href="/lab">Simulator</a></li>
+          <li><a class="navbar__nav-link active" href="/dashboard">Dashboard</a></li>
+          <li><a class="navbar__nav-link" href="/metrics" target="_blank">Metrics</a></li>
+          <li><a class="navbar__nav-link" href="http://localhost:3002" target="_blank">Grafana</a></li>
+        </ul>
+      </div>
+      <a class="navbar__cta" href="/lab">Open simulator</a>
+    </div>
+  </nav>
+
+  <div class="container-x" style="padding-top:40px; padding-bottom:40px;">
+    <h1 class="page-title">System <span class="highlight">Dashboard.</span></h1>
+    <p class="page-sub"><span class="live-dot"></span> <span id="hdr-live">connecting to live stream…</span> &nbsp;·&nbsp; every number below is a real limiter decision, refreshed every second.</p>
+    <div class="flex gap-2 flex-wrap" style="margin:18px 0 30px;" id="status-pills">
+      <span id="pill-redis" class="pill">Redis …</span>
+      <span id="pill-store" class="pill pill--soft">store …</span>
+      <span id="pill-mode" class="pill pill--soft">fail-closed</span>
+      <span id="pill-algo" class="pill pill--dark">token-bucket</span>
+      <span id="pill-backend" class="pill pill--soft">no custom backend</span>
+    </div>
+
+    <div class="grid grid-cols-12 gap-5 items-start">
+      <!-- ══════ MAIN ══════ -->
+      <div class="col-span-12 xl:col-span-8 space-y-5">
+        <section class="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <div class="card card-pad"><div class="kpi-label">Throughput</div><div class="kpi-value tabular" id="kpi-rps">0</div><div class="kpi-sub tabular" id="kpi-total">0 decisions</div></div>
+          <div class="card card-pad"><div class="kpi-label">Allowed · 200</div><div class="kpi-value tabular" id="kpi-allowed">0</div><div class="kpi-sub">proxied to backend</div></div>
+          <div class="card card-pad"><div class="kpi-label">Denied · 429</div><div class="kpi-value tabular" id="kpi-denied">0</div><div class="kpi-sub tabular" id="kpi-denyrate">0% deny rate</div></div>
+          <div class="card card-pad"><div class="kpi-label">p95 latency</div><div class="kpi-value tabular" id="kpi-p95">0 ms</div><div class="kpi-sub tabular" id="kpi-p99">p99 — · p50 —</div></div>
+          <div class="card card-pad"><div class="kpi-label">Fallbacks</div><div class="kpi-value tabular" id="kpi-fallback">0</div><div class="kpi-sub">degraded decisions</div></div>
+          <div class="card card-pad" style="background:#1A1A1A; border-color:#1A1A1A;"><div class="kpi-label" style="color:#BDBDBD;">Bucket level</div><div class="kpi-value tabular" style="color:#fff;" id="kpi-bucket">—</div><div style="height:10px; margin-top:12px; border-radius:100px; background:#333; overflow:hidden;"><div id="kpi-bucket-bar" style="height:100%; width:100%; border-radius:100px; background:#fff; transition:width .3s;"></div></div></div>
+        </section>
+
+        <section class="card card-pad">
+          <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <h2 class="font-poppins" style="font-weight:600; font-size:22px;">Allowed vs denied per second</h2>
+            <span class="kpi-label">Real decisions · 60s window</span>
+          </div>
+          <div style="height:300px;"><canvas id="ch-traffic"></canvas></div>
+        </section>
+
+        <section class="grid md:grid-cols-5 gap-5">
+          <div class="card card-pad md:col-span-3">
+            <div class="flex items-center justify-between mb-3"><h2 class="font-poppins" style="font-weight:600; font-size:20px;">Decision latency</h2><span class="kpi-label">Avg / Max ms</span></div>
+            <div style="height:230px;"><canvas id="ch-latency"></canvas></div>
+          </div>
+          <div class="card card-pad md:col-span-2">
+            <h2 class="font-poppins" style="font-weight:600; font-size:20px; margin-bottom:6px;">Resilience</h2>
+            <div id="resil-box">
+              <div class="resil-row"><span class="resil-k">Primary store</span><span class="resil-v" id="r-store">—</span></div>
+              <div class="resil-row"><span class="resil-k">Redis state</span><span class="resil-v" id="r-redis">—</span></div>
+              <div class="resil-row"><span class="resil-k">Failure mode</span><span class="resil-v" id="r-mode">—</span></div>
+              <div class="resil-row"><span class="resil-k">Store timeout</span><span class="resil-v tabular" id="r-timeout">—</span></div>
+              <div class="resil-row"><span class="resil-k">Memory fallback</span><span class="resil-v" id="r-fallback">—</span></div>
+              <div class="resil-row"><span class="resil-k">Active rule</span><span class="resil-v" id="r-rule">—</span></div>
+              <div class="resil-row"><span class="resil-k">Key strategy</span><span class="resil-v" id="r-key">—</span></div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- ══════ RIGHT SIDEBAR: LIVE LOG ══════ -->
+      <aside class="col-span-12 xl:col-span-4">
+        <div class="card log-sidebar">
+          <div class="flex items-center justify-between" style="padding:20px 20px 14px;">
+            <div>
+              <h2 class="font-poppins" style="font-weight:600; font-size:20px;">Live decision log</h2>
+              <div style="font-size:13px; color:#666;" id="conn-state"><span class="live-dot"></span> SSE live · newest first</div>
+            </div>
+            <span class="pill pill--dark tabular" id="log-count" style="font-size:12px;">0</span>
+          </div>
+          <div class="log-feed" id="log-feed">
+            <div style="padding:28px 20px; text-align:center; color:#999; font-size:14px;" id="log-empty">Waiting for real traffic —<br>start load from the <a href="/lab" style="color:#111; font-weight:700;">simulator</a>.</div>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <footer class="flex items-center justify-between flex-wrap gap-2" style="font-size:12.5px; color:#999; padding:32px 0 8px;">
+      <span>RateLimit Lab dashboard · all data from <b>/lab/stream</b> · control traffic from the <a href="/lab" style="color:#111; font-weight:700;">simulator</a></span>
+      <span>Gateway → RateLimiter → Algorithm + Store · atomic Lua · 150ms timeout</span>
+    </footer>
+  </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+Chart.defaults.color = '#666666'; Chart.defaults.font.family = 'Poppins'; Chart.defaults.borderColor = '#EDEDED';
+const GRID = 'rgba(0,0,0,.06)';
+const trafficChart = new Chart($('ch-traffic'), { type:'line',
+  data:{ labels:[], datasets:[
+    { label:'allowed', data:[], borderColor:'#1A1A1A', backgroundColor:'rgba(26,26,26,.08)', fill:true, tension:.4, pointRadius:0, borderWidth:3 },
+    { label:'denied 429', data:[], borderColor:'#dc2626', backgroundColor:'rgba(220,38,38,.08)', fill:true, tension:.4, pointRadius:0, borderWidth:2.5 },
+  ]}, options:{ responsive:true, maintainAspectRatio:false, animation:false,
+    plugins:{ legend:{ labels:{ boxWidth:14, boxHeight:14, usePointStyle:true, pointStyle:'circle', font:{ size:13, weight:'600' } } } },
+    scales:{ x:{ ticks:{ maxTicksLimit:10, font:{ size:11 } }, grid:{ display:false } }, y:{ beginAtZero:true, ticks:{ font:{ size:11 }, precision:0 }, grid:{ color:GRID } } } } });
+const latencyChart = new Chart($('ch-latency'), { type:'line',
+  data:{ labels:[], datasets:[
+    { label:'avg ms', data:[], borderColor:'#1A1A1A', tension:.4, pointRadius:0, borderWidth:3 },
+    { label:'max ms', data:[], borderColor:'#999999', borderDash:[6,5], tension:.3, pointRadius:0, borderWidth:2 },
+  ]}, options:{ responsive:true, maintainAspectRatio:false, animation:false,
+    plugins:{ legend:{ labels:{ boxWidth:14, boxHeight:14, usePointStyle:true, pointStyle:'circle', font:{ size:13, weight:'600' } } } },
+    scales:{ x:{ ticks:{ maxTicksLimit:6, font:{ size:11 } }, grid:{ display:false } }, y:{ beginAtZero:true, ticks:{ font:{ size:11 } }, grid:{ color:GRID } } } } });
+
+let es = null, pollFallback = null;
+function connectSSE(){
+  try { es && es.close(); } catch {}
+  es = new EventSource('/lab/stream');
+  es.addEventListener('snapshot', (e) => render(JSON.parse(e.data)));
+  es.addEventListener('tick', (e) => render(JSON.parse(e.data)));
+  es.onopen = () => { $('conn-state').innerHTML = '<span class="live-dot"></span> SSE live · newest first'; $('hdr-live').textContent = 'live · streaming real decisions'; clearInterval(pollFallback); };
+  es.onerror = () => {
+    $('conn-state').textContent = 'reconnecting… (polling)';
+    es.close(); clearInterval(pollFallback);
+    pollFallback = setInterval(async () => { try { const r = await fetch('/lab/status'); const j = await r.json(); if (j.snapshot) render(j.snapshot); } catch {} }, 2000);
+    setTimeout(connectSSE, 4000);
+  };
+}
+
+function ruleSummary(rule){
+  if (!rule) return '—';
+  if (rule.algorithm === 'token-bucket') return `token-bucket ${rule.capacity} / ${rule.refillRatePerSec}/s`;
+  if (rule.algorithm === 'leaky-bucket') return `leaky ${rule.capacity} / ${rule.leakRatePerSec}/s`;
+  return `${rule.algorithm} ${rule.limit} / ${Math.round(rule.windowMs/1000)}s`;
+}
+
+function render(s){
+  const t = s.totals, r = s.resilience;
+  $('kpi-rps').textContent = t.rps;
+  $('kpi-total').textContent = `${t.total} decisions`;
+  $('kpi-allowed').textContent = t.allowed;
+  $('kpi-denied').textContent = t.denied;
+  $('kpi-denyrate').textContent = `${t.denyRate}% deny rate`;
+  $('kpi-p95').textContent = `${t.p95Ms} ms`;
+  $('kpi-p99').textContent = `p99 ${t.p99Ms} · p50 ${t.p50Ms}`;
+  $('kpi-fallback').textContent = t.fallback;
+
+  const redisUp = r.redisUp;
+  $('pill-redis').textContent = redisUp ? '● Redis UP' : '● Redis DOWN';
+  $('pill-redis').style.borderColor = redisUp ? '#1A1A1A' : '#dc2626';
+  $('pill-redis').style.color = redisUp ? '#111' : '#dc2626';
+  $('pill-store').textContent = `store ${r.store}${r.useRedis ? ' +fallback' : ''}`;
+  $('pill-mode').textContent = r.failureMode;
+  $('pill-algo').textContent = s.rules.defaultRule.algorithm;
+  const byob = s.backend && s.backend.customUrl;
+  $('pill-backend').textContent = byob ? `tunnel → ${byob}` : 'no custom backend';
+
+  $('r-store').textContent = r.useRedis ? `${r.store} + memory fallback` : r.store;
+  $('r-redis').textContent = redisUp ? 'UP' : 'DOWN · chaos';
+  $('r-redis').style.color = redisUp ? '#111' : '#dc2626';
+  $('r-mode').textContent = r.failureMode;
+  $('r-timeout').textContent = `${r.timeoutMs} ms`;
+  $('r-fallback').textContent = r.enableFallback ? 'ON' : 'OFF';
+  $('r-rule').textContent = ruleSummary(s.rules.defaultRule);
+  $('r-key').textContent = s.rules.keyBy;
+
+  const lastEv = (s.recent && s.recent[0]) || null;
+  if (lastEv && lastEv.limit > 0) {
+    const frac = Math.max(0, Math.min(1, lastEv.remaining / lastEv.limit));
+    $('kpi-bucket').textContent = `${lastEv.remaining}/${lastEv.limit}`;
+    $('kpi-bucket-bar').style.width = (frac * 100) + '%';
+  }
+
+  const labels = s.series.map(p => new Date(p.t).toLocaleTimeString([], { minute:'2-digit', second:'2-digit' }));
+  trafficChart.data.labels = labels;
+  trafficChart.data.datasets[0].data = s.series.map(p => p.allowed);
+  trafficChart.data.datasets[1].data = s.series.map(p => p.denied);
+  trafficChart.update('none');
+  latencyChart.data.labels = labels;
+  latencyChart.data.datasets[0].data = s.series.map(p => p.avgMs);
+  latencyChart.data.datasets[1].data = s.series.map(p => p.maxMs);
+  latencyChart.update('none');
+
+  $('log-count').textContent = t.total;
+  if (s.recent && s.recent.length) {
+    const empty = $('log-empty'); if (empty) empty.remove();
+    $('log-feed').innerHTML = s.recent.map(ev => {
+      const verdict = ev.allowed ? '<span class="verdict-allow">ALLOW</span>' : '<span class="verdict-deny">429 DENY</span>';
+      const time = new Date(ev.t).toLocaleTimeString([], { hour12:false });
+      return `<div class="log-item">
+        <div class="log-top">${verdict}<span class="log-time tabular">${time}</span>${ev.fallback ? '<span class="fb-tag">FALLBACK</span>' : ''}</div>
+        <div class="log-route">${ev.route} <span style="color:#999; font-weight:400;">· ${ev.algorithm}</span></div>
+        <div class="log-meta tabular">limit ${ev.limit} · remain ${ev.remaining}${ev.allowed ? '' : ' · retry ' + Math.ceil(ev.retryAfterMs/1000) + 's'} · ${ev.latencyMs}ms</div>
+        <div class="log-meta" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${ev.key}</div>
+      </div>`;
+    }).join('');
+  }
+}
+
+connectSSE();
+</script>
+</body>
+</html>

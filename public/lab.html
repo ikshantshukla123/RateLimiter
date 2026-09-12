@@ -1,0 +1,821 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RateLimit Lab — Break Things Safely</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      fontFamily: {
+        nunito: ['Nunito','sans-serif'],
+        poppins: ['Poppins','sans-serif'],
+        lato: ['Lato','sans-serif'],
+        alkatra: ['Alkatra','sans-serif'],
+      },
+    }
+  }
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&family=Poppins:wght@300;400;500;600&family=Lato:ital,wght@0,700;0,900;1,900&family=Alkatra:wght@700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --ink:#1A1A1A; --sub:#424242; --muted:#666666; --faint:#999999;
+    --page:#F8F8F8; --line:#E7E7E7; --card-border:#ECECEC;
+    --danger:#dc2626;
+  }
+  html,body{ height:100%; }
+  html{ scroll-behavior:smooth; }
+  body{ font-family:Nunito,sans-serif; background:var(--page); color:var(--ink); -webkit-font-smoothing:antialiased; overflow:hidden; }
+  .font-poppins{ font-family:Poppins,sans-serif; }
+  .font-mono2{ font-family:'JetBrains Mono',monospace; }
+  .tabular{ font-variant-numeric:tabular-nums; }
+
+  /* ── App shell: topbar + workbench + strip, one viewport ── */
+  .shell{ height:100vh; height:100dvh; display:flex; flex-direction:column; }
+  .workbench{ flex:1; min-height:0; display:grid; grid-template-columns:292px minmax(0,1fr) 336px; gap:12px; padding:0 12px; }
+  body.hide-rail .workbench{ grid-template-columns:0 minmax(0,1fr) 336px; }
+  body.hide-ins .workbench{ grid-template-columns:292px minmax(0,1fr) 0; }
+  body.hide-rail.hide-ins .workbench{ grid-template-columns:0 minmax(0,1fr) 0; }
+  body.hide-rail .rail, body.hide-ins .inspector{ display:none; }
+
+  /* ── Top command bar ── */
+  .topbar{ background:var(--page); border-bottom:1px solid var(--line); padding:10px 12px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; z-index:50; }
+  .brand{ display:flex; align-items:center; gap:10px; text-decoration:none; margin-right:2px; }
+  .brand-mark{ width:38px; height:38px; border-radius:10px; background:#1A1A1A; color:#fff; display:grid; place-items:center; font-family:Lato,sans-serif; font-weight:900; font-size:19px; flex-shrink:0; }
+  .brand-name{ font-family:Lato,sans-serif; font-weight:800; font-size:19px; color:#111; line-height:1; white-space:nowrap; }
+  .brand-sub{ font-family:Poppins,sans-serif; font-size:10.5px; color:#666; }
+  .tbtn{ display:inline-flex; align-items:center; justify-content:center; gap:6px; height:38px; min-width:38px; padding:0 12px; border-radius:10px; border:1.5px solid #C6C6C6; background:#fff; color:#111; font-family:Poppins,sans-serif; font-size:13px; font-weight:600; cursor:pointer; transition:.15s; white-space:nowrap; }
+  .tbtn:hover{ border-color:#1A1A1A; }
+  .tbtn.primary{ background:#1A1A1A; border-color:#1A1A1A; color:#fff; }
+  .tbtn.primary:hover{ opacity:.88; }
+  .tbtn.on{ background:#1A1A1A; border-color:#1A1A1A; color:#fff; }
+  .tbtn svg{ width:15px; height:15px; }
+  .traffic-ctl{ display:flex; align-items:center; gap:10px; flex:1 1 220px; min-width:200px; background:#fff; border:1.5px solid #C6C6C6; border-radius:12px; padding:6px 14px; }
+  .traffic-ctl input{ flex:1; }
+  .headline{ display:flex; align-items:baseline; gap:6px; background:#fff; border:1px solid var(--card-border); border-radius:10px; padding:6px 12px; box-shadow:0 2px 8px rgba(0,0,0,.04); }
+  .headline .n{ font-family:Poppins,sans-serif; font-weight:600; font-size:19px; }
+  .headline .l{ font-size:10.5px; text-transform:uppercase; letter-spacing:.08em; color:#666; font-weight:700; font-family:Poppins,sans-serif; }
+  .live-pill{ display:inline-flex; align-items:center; gap:7px; font-size:12px; font-weight:700; font-family:Poppins,sans-serif; color:#111; }
+  .live-dot{ width:9px; height:9px; border-radius:50%; background:#1A1A1A; display:inline-block; animation:pulse 1.6s infinite; }
+  @keyframes pulse{ 0%,100%{opacity:1} 50%{opacity:.3} }
+
+  input[type=range]{ -webkit-appearance:none; height:8px; border-radius:100px; background:linear-gradient(90deg,#1A1A1A var(--fill,30%),#E4E4E4 var(--fill,30%)); outline:none; cursor:pointer; }
+  input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; width:20px; height:20px; border-radius:50%; background:#fff; border:3px solid #1A1A1A; box-shadow:0 2px 8px rgba(0,0,0,.25); cursor:grab; }
+  input[type=range]::-moz-range-thumb{ width:16px; height:16px; border-radius:50%; background:#fff; border:3px solid #1A1A1A; cursor:grab; }
+  input[type=range].on-dark{ background:linear-gradient(90deg,#fff var(--fill,15%),#444 var(--fill,15%)); }
+  input[type=range].on-dark::-webkit-slider-thumb{ border-color:#fff; }
+  select{ background:#fff; border:1.5px solid #C6C6C6; border-radius:10px; padding:9px 11px; font-size:13.5px; width:100%; color:#1A1A1A; font-family:Poppins,sans-serif; }
+  select:focus{ border-color:#1A1A1A; outline:none; }
+  .field-label{ font-size:10.5px; font-weight:700; color:#666; text-transform:uppercase; letter-spacing:.1em; font-family:Poppins,sans-serif; }
+
+  /* ── Panels ── */
+  .panel{ background:#fff; border:1px solid var(--card-border); border-radius:14px; box-shadow:0 2px 12px rgba(0,0,0,.05); }
+  .rail,.inspector{ min-height:0; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:12px; align-content:flex-start; }
+  .rail-card{ border:1.5px solid var(--card-border); border-radius:12px; padding:14px; background:#fff; }
+  .rail-title{ font-family:Poppins,sans-serif; font-weight:600; font-size:14.5px; margin-bottom:2px; }
+  .rail-sub{ font-size:12px; color:#666; margin-bottom:10px; }
+  .algo-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .algo-card{ cursor:pointer; border:2px solid #E3E3E3; background:#fff; border-radius:10px; padding:10px; transition:.15s; text-align:left; width:100%; }
+  .algo-card:hover{ border-color:#1A1A1A; }
+  .algo-card.active{ background:#1A1A1A; border-color:#1A1A1A; }
+  .algo-card.active .algo-name{ color:#fff; } .algo-card.active .algo-desc{ color:#BDBDBD; }
+  .algo-name{ font-family:Poppins,sans-serif; font-weight:600; font-size:13px; color:#1A1A1A; line-height:1.2; }
+  .algo-desc{ font-size:11px; color:#666; margin-top:2px; }
+  .preset-btn{ width:100%; text-align:left; border:1.5px solid #C6C6C6; background:#fff; border-radius:10px; padding:10px 12px; cursor:pointer; transition:.15s; }
+  .preset-btn:hover{ border-color:#1A1A1A; transform:translateY(-1px); }
+  .preset-btn .t{ font-family:Poppins,sans-serif; font-weight:600; font-size:13.5px; }
+  .preset-btn .d{ font-size:11.5px; color:#666; }
+  .btn-primary{ background:#1F1F1F; color:#fff; border-radius:10px; font-family:Poppins,sans-serif; font-weight:600; border:none; cursor:pointer; transition:.15s; }
+  .btn-primary:hover{ transform:translateY(-1px); box-shadow:0 8px 20px rgba(0,0,0,.2); }
+  .btn-ghost{ border:1.5px solid #C6C6C6; background:#fff; color:#111; border-radius:10px; font-family:Poppins,sans-serif; font-weight:500; cursor:pointer; transition:.15s; }
+  .btn-ghost:hover{ border-color:#1A1A1A; }
+  .btn-danger-active{ background:#1A1A1A !important; color:#fff !important; border-color:#1A1A1A !important; }
+
+  /* ── Stage / canvas ── */
+  .stage{ min-height:0; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:12px; }
+  .topo{ display:flex; align-items:stretch; gap:6px; }
+  .node{ flex:1 1 0; min-width:0; background:#fff; border:2px solid #E2E2E2; border-radius:12px; padding:10px 12px; cursor:pointer; text-align:left; transition:border-color .15s, box-shadow .15s; font-family:inherit; }
+  .node:hover{ border-color:#999; }
+  .node.selected{ border-color:#1A1A1A; box-shadow:0 0 0 3px rgba(26,26,26,.12); }
+  .node.alert{ border-color:var(--danger); }
+  .node .nt{ font-family:Poppins,sans-serif; font-size:10px; font-weight:600; letter-spacing:.12em; text-transform:uppercase; color:#666; display:flex; justify-content:space-between; align-items:center; gap:6px; }
+  .node .nv{ font-family:Poppins,sans-serif; font-weight:600; font-size:17px; color:#111; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .node .ns{ font-size:11px; color:#666; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .node.dark{ background:#1A1A1A; border-color:#1A1A1A; }
+  .node.dark .nt{ color:#BDBDBD; } .node.dark .nv{ color:#fff; } .node.dark .ns{ color:#BDBDBD; }
+  .node svg.spark{ display:block; width:100%; height:26px; margin-top:6px; }
+  .edge{ align-self:center; color:#1A1A1A; font-weight:800; font-size:16px; flex-shrink:0; user-select:none; }
+  #flow-lane{ position:relative; overflow:hidden; background:#fff; border:1.5px solid #E2E2E2; border-radius:12px; height:86px; flex-shrink:0; }
+  .flow-dot{ position:absolute; top:50%; width:13px; height:13px; border-radius:50%; transform:translateY(-50%); pointer-events:none; border:2px solid #fff; box-shadow:0 2px 8px rgba(0,0,0,.25); }
+  .mini-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+  .stat-mini{ border:1.5px solid #E7E7E7; background:#fff; border-radius:10px; padding:10px 12px; }
+  .stat-mini .k{ font-size:10px; text-transform:uppercase; letter-spacing:.1em; color:#666; font-weight:700; font-family:Poppins,sans-serif; }
+  .stat-mini .v{ font-family:Poppins,sans-serif; font-size:17px; font-weight:600; color:#111; }
+  .explainer{ font-size:12.5px; color:#666; }
+  .explainer summary{ cursor:pointer; font-family:Poppins,sans-serif; font-weight:600; font-size:13px; color:#111; }
+  .explainer b{ color:#111; }
+
+  /* ── Inspector ── */
+  .inspector-head{ display:flex; align-items:center; justify-content:space-between; }
+  .inspector-title{ font-family:Poppins,sans-serif; font-weight:600; font-size:15px; }
+  .kv{ display:flex; justify-content:space-between; align-items:center; gap:10px; padding:9px 0; border-top:1px solid #EDEDED; font-size:13.5px; }
+  .kv:first-child{ border-top:none; }
+  .kv .k{ color:#666; font-family:Poppins,sans-serif; font-weight:500; }
+  .kv .v{ font-weight:700; text-align:right; word-break:break-word; }
+  .bucket-track{ height:10px; border-radius:100px; background:#EDEDED; overflow:hidden; margin-top:8px; }
+  .bucket-fill{ height:100%; background:#1A1A1A; border-radius:100px; transition:width .3s; }
+
+  /* ── Bottom metrics strip ── */
+  .strip{ border-top:1px solid var(--line); background:var(--page); padding:10px 12px 12px; }
+  .strip-head{ display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+  .strip-charts{ display:grid; grid-template-columns:1.4fr 1fr; gap:12px; }
+  .strip.hidden-strip .strip-charts{ display:none; }
+  .chart-card{ background:#fff; border:1px solid var(--card-border); border-radius:12px; padding:10px 14px; box-shadow:0 2px 8px rgba(0,0,0,.04); }
+  .chart-card h4{ font-family:Poppins,sans-serif; font-weight:600; font-size:13.5px; }
+  .chart-card .tag{ font-size:10px; font-weight:700; letter-spacing:.1em; color:#999; font-family:Poppins,sans-serif; }
+
+  .toast{ background:#1A1A1A; color:#fff; border-radius:10px; padding:12px 16px; font-size:13.5px; font-weight:600; box-shadow:0 8px 24px rgba(0,0,0,.25); max-width:340px; animation:slideIn .25s ease-out; }
+  @keyframes slideIn{ from{transform:translateY(8px); opacity:0} to{transform:translateY(0); opacity:1} }
+  ::-webkit-scrollbar{ width:8px; height:8px; } ::-webkit-scrollbar-thumb{ background:#C6C6C6; border-radius:8px; }
+  kbd{ font-family:'JetBrains Mono',monospace; font-size:11px; background:#F1F1F1; border:1px solid #DDD; border-bottom-width:2px; border-radius:6px; padding:1px 6px; }
+
+  @media (max-width:1100px){
+    body{ overflow:auto; }
+    .shell{ height:auto; min-height:100vh; }
+    .workbench, body.hide-rail .workbench, body.hide-ins .workbench{ grid-template-columns:1fr; }
+    .rail,.inspector,.stage{ overflow:visible; }
+    body.hide-rail .rail, body.hide-ins .inspector{ display:flex; }
+    .strip-charts{ grid-template-columns:1fr; }
+    .mini-grid{ grid-template-columns:repeat(2,1fr); }
+    .topo{ flex-wrap:wrap; } .node{ flex:1 1 40%; } .edge{ display:none; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ══════════ TOP COMMAND BAR ══════════ -->
+  <header class="topbar">
+    <a class="brand" href="/lab" title="RateLimit Lab">
+      <span class="brand-mark">≋</span>
+      <span><span class="brand-name">RateLimit Lab</span><br><span class="brand-sub">break it safely · live gateway :3000</span></span>
+    </a>
+    <button class="tbtn primary" id="btn-play" title="Start / stop traffic (Space)">
+      <svg id="ic-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      <svg id="ic-pause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+      <span id="btn-play-label">Run</span>
+    </button>
+    <button class="tbtn" id="btn-step" title="Fire 10 requests once">+10</button>
+    <div class="traffic-ctl" title="Offered load — drag me, like Breakscale">
+      <span class="field-label" style="white-space:nowrap;">Load</span>
+      <input id="in-rps" type="range" min="1" max="150" value="25">
+      <span class="font-poppins tabular" style="font-weight:600; font-size:14px; white-space:nowrap;" id="v-rps">25 rps</span>
+    </div>
+    <div class="headline" title="Requests per second decided in the last few seconds"><span class="n tabular" id="tb-rps">0</span><span class="l">rps</span></div>
+    <div class="headline" title="Allowed requests (200 OK, proxied)"><span class="n tabular" id="tb-allowed">0</span><span class="l">allow</span></div>
+    <div class="headline" title="Denied requests (429 Too Many Requests)"><span class="n tabular" id="tb-denied" style="color:var(--danger);">0</span><span class="l">429</span></div>
+    <div class="headline" title="p95 decision latency"><span class="n tabular" id="tb-p95">0<span style="font-size:12px;">ms</span></span><span class="l">p95</span></div>
+    <button class="tbtn" id="btn-chaos" title="Open Redis chaos controls">Chaos</button>
+    <div style="flex:1"></div>
+    <span class="live-pill" id="hdr-live" title="Live event stream status"><span class="live-dot"></span>connecting…</span>
+    <button class="tbtn tog" id="tog-rail" title="Toggle scenarios rail">Scenarios</button>
+    <button class="tbtn tog on" id="tog-strip" title="Toggle charts strip">Charts</button>
+    <button class="tbtn tog" id="tog-ins" title="Toggle inspector">Inspect</button>
+    <a class="tbtn" href="/dashboard" title="Open the full dashboard">Dashboard</a>
+  </header>
+
+  <!-- ══════════ WORKBENCH ══════════ -->
+  <main class="workbench">
+
+    <!-- LEFT RAIL: scenarios + algorithm -->
+    <aside class="rail panel" aria-label="Scenarios and rules">
+      <div class="rail-card">
+        <div class="rail-title">Scenarios</div>
+        <div class="rail-sub">One click loads rule + traffic + chaos.</div>
+        <div class="space-y-2" id="preset-box">
+          <button data-preset="flash-sale" class="preset-btn"><div class="t">Flash sale</div><div class="d">Token burst absorbs the crowd</div></button>
+          <button data-preset="boundary-burst" class="preset-btn"><div class="t">Boundary burst</div><div class="d">Fixed window lets 2× through at edge</div></button>
+          <button data-preset="expensive-api" class="preset-btn"><div class="t">Expensive API</div><div class="d">Strict guard on /api/expensive</div></button>
+          <button data-preset="redis-outage" class="preset-btn" style="border-color:#1A1A1A; border-width:2px;"><div class="t">Redis outage</div><div class="d">Kill Redis mid-traffic, watch fallback</div></button>
+        </div>
+      </div>
+
+      <div class="rail-card">
+        <div class="rail-title">Algorithm <span style="font-size:11px; color:#999; font-weight:500;">· live</span></div>
+        <div class="rail-sub">Click, tune, Apply — no restart.</div>
+        <div class="algo-grid" id="algo-grid">
+          <button class="algo-card active" data-algo="token-bucket"><div class="algo-name">Token bucket</div><div class="algo-desc">Bursty · default</div></button>
+          <button class="algo-card" data-algo="fixed-window"><div class="algo-name">Fixed window</div><div class="algo-desc">Hard cliff</div></button>
+          <button class="algo-card" data-algo="sliding-window"><div class="algo-name">Sliding window</div><div class="algo-desc">Smooth</div></button>
+          <button class="algo-card" data-algo="leaky-bucket"><div class="algo-name">Leaky bucket</div><div class="algo-desc">Shaped output</div></button>
+        </div>
+        <div class="mt-3" id="param-box">
+          <div id="params-token">
+            <div class="flex justify-between mb-1"><span style="font-size:12.5px; color:#424242; font-weight:500;">Capacity</span><span class="font-poppins tabular" style="font-weight:600; font-size:13px;" id="v-cap">20</span></div>
+            <input id="in-cap" type="range" min="5" max="1000" value="20">
+            <div class="flex justify-between mb-1 mt-3"><span style="font-size:12.5px; color:#424242; font-weight:500;">Refill / sec</span><span class="font-poppins tabular" style="font-weight:600; font-size:13px;" id="v-refill">2</span></div>
+            <input id="in-refill" type="range" min="1" max="500" value="2">
+          </div>
+          <div id="params-window" class="hidden">
+            <div class="flex justify-between mb-1"><span style="font-size:12.5px; color:#424242; font-weight:500;">Limit / window</span><span class="font-poppins tabular" style="font-weight:600; font-size:13px;" id="v-limit">20</span></div>
+            <input id="in-limit" type="range" min="2" max="1000" value="20">
+            <div class="flex justify-between mb-1 mt-3"><span style="font-size:12.5px; color:#424242; font-weight:500;">Window</span><span class="font-poppins tabular" style="font-weight:600; font-size:13px;" id="v-window">10s</span></div>
+            <input id="in-window" type="range" min="2" max="120" value="10">
+          </div>
+          <div id="params-leaky" class="hidden">
+            <div class="flex justify-between mb-1"><span style="font-size:12.5px; color:#424242; font-weight:500;">Queue capacity</span><span class="font-poppins tabular" style="font-weight:600; font-size:13px;" id="v-lcap">50</span></div>
+            <input id="in-lcap" type="range" min="5" max="1000" value="50">
+            <div class="flex justify-between mb-1 mt-3"><span style="font-size:12.5px; color:#424242; font-weight:500;">Leak / sec</span><span class="font-poppins tabular" style="font-weight:600; font-size:13px;" id="v-leak">5</span></div>
+            <input id="in-leak" type="range" min="1" max="500" value="5">
+          </div>
+        </div>
+        <div class="mt-3"><label class="field-label">Key by</label>
+          <select id="in-keyby" class="mt-1"><option value="ip">IP + route</option><option value="apiKey">API key</option><option value="userId">User ID</option><option value="route">Route only</option></select></div>
+        <button id="btn-apply" class="btn-primary w-full mt-3" style="padding:12px; font-size:14.5px;">Apply rule live</button>
+      </div>
+
+      <div class="rail-card">
+        <div class="rail-title">Session</div>
+        <div class="rail-sub">Each identity gets an isolated bucket.</div>
+        <div class="kv"><span class="k">Identity</span><span class="v font-mono2" style="font-size:12.5px;" id="sess-label">—</span></div>
+        <div class="grid grid-cols-2 gap-2 mt-2">
+          <button id="btn-newsess" class="btn-ghost" style="padding:9px 6px; font-size:12.5px;">New identity</button>
+          <button id="btn-reset" class="btn-ghost" style="padding:9px 6px; font-size:12.5px;">Reset + heal</button>
+        </div>
+        <p style="font-size:11.5px; color:#999; margin-top:8px;"><kbd>Space</kbd> run · <kbd>B</kbd> burst · <kbd>Esc</kbd> inspector</p>
+      </div>
+    </aside>
+
+    <!-- CENTER STAGE -->
+    <section class="stage panel" aria-label="Live topology">
+      <div class="topo" id="topo" role="group" aria-label="Request path — click a node to inspect it">
+        <button class="node" data-node="client" title="Traffic source — click to inspect">
+          <span class="nt">Client <span>›</span></span>
+          <span class="nv tabular" id="topo-rps">0 rps</span>
+          <span class="ns font-mono2" id="topo-sess">—</span>
+          <svg class="spark" id="spark-client" viewBox="0 0 100 26" preserveAspectRatio="none"></svg>
+        </button>
+        <span class="edge">→</span>
+        <button class="node dark" data-node="gateway" title="Rate-limit gate — click to inspect">
+          <span class="nt">Gateway :3000 <span>›</span></span>
+          <span class="nv" id="topo-algo">token-bucket</span>
+          <span class="ns">atomic Lua decision</span>
+          <svg class="spark" id="spark-gateway" viewBox="0 0 100 26" preserveAspectRatio="none"></svg>
+        </button>
+        <span class="edge">→</span>
+        <button class="node" data-node="redis" id="node-redis" title="Shared state — click for chaos controls">
+          <span class="nt"><span id="topo-redis-label">Redis</span> <span>›</span></span>
+          <span class="nv" id="topo-redis-state">UP</span>
+          <span class="ns" id="topo-store-sub">shared state</span>
+          <svg class="spark" id="spark-redis" viewBox="0 0 100 26" preserveAspectRatio="none"></svg>
+        </button>
+        <span class="edge">→</span>
+        <button class="node" data-node="backend" title="Downstream — click to connect your own server">
+          <span class="nt">Backend <span>›</span></span>
+          <span class="nv tabular" id="topo-backend">0 proxied</span>
+          <span class="ns" id="topo-backend-sub">dummy :3001</span>
+          <svg class="spark" id="spark-backend" viewBox="0 0 100 26" preserveAspectRatio="none"></svg>
+        </button>
+      </div>
+
+      <div id="flow-lane">
+        <div style="position:absolute; left:16px; right:16px; top:50%; height:3px; border-radius:100px; background:#E4E4E4; transform:translateY(-50%);"></div>
+        <div style="position:absolute; left:16px; top:8px; font-size:10px; font-weight:800; color:#999; font-family:Poppins; letter-spacing:.1em;">CLIENT</div>
+        <div style="position:absolute; right:16px; top:8px; font-size:10px; font-weight:800; color:#999; font-family:Poppins; letter-spacing:.1em;">BACKEND</div>
+        <div id="lane-empty" style="position:absolute; inset:0; display:grid; place-items:center; font-size:13.5px; color:#666; font-weight:500;">Press <b style="margin:0 6px; color:#111;">Run</b> — every dot is a real HTTP request</div>
+      </div>
+
+      <div class="mini-grid">
+        <div class="stat-mini"><div class="k">Last status</div><div class="v tabular" id="last-status">—</div></div>
+        <div class="stat-mini"><div class="k">Remaining</div><div class="v tabular" id="last-remaining">—</div></div>
+        <div class="stat-mini"><div class="k">Retry-After</div><div class="v tabular" id="last-retry">—</div></div>
+        <div class="stat-mini"><div class="k">Decision ms</div><div class="v tabular" id="last-ms">—</div></div>
+      </div>
+
+      <details class="explainer panel" style="padding:12px 16px;">
+        <summary>What am I looking at?</summary>
+        <div style="margin-top:8px; line-height:1.7;">
+          <b>allow</b> — request was under the limit, proxied to the backend (200).
+          <b>429</b> — request was over the limit and stopped at the gate; your server never sees it.
+          <b>fallback</b> — Redis was unreachable so the decision came from per-instance memory instead.
+          <b>p95</b> — 95% of decisions were faster than this; the limiter must never be the slow part.
+          Click any node above to inspect and configure it.
+        </div>
+      </details>
+    </section>
+
+    <!-- RIGHT INSPECTOR (selection-driven) -->
+    <aside class="inspector panel" aria-label="Inspector">
+      <div class="inspector-head">
+        <span class="inspector-title" id="ins-title">Session</span>
+        <button class="tbtn" id="ins-close" style="height:30px; min-width:30px; padding:0 8px;" title="Back to session (Esc)">✕</button>
+      </div>
+
+      <!-- default -->
+      <div data-panel="session">
+        <div class="rail-card">
+          <div class="rail-title">Last decision</div>
+          <div class="rail-sub">Deep-dive of the newest verdict.</div>
+          <div id="ins-last">
+            <div class="kv"><span class="k">Verdict</span><span class="v" id="ins-verdict">—</span></div>
+            <div class="kv"><span class="k">Route</span><span class="v font-mono2" style="font-size:12.5px;" id="ins-route">—</span></div>
+            <div class="kv"><span class="k">Key</span><span class="v font-mono2" style="font-size:12px;" id="ins-key">—</span></div>
+            <div class="kv"><span class="k">Limit / remain</span><span class="v tabular" id="ins-limit">—</span></div>
+            <div class="kv"><span class="k">Retry after</span><span class="v tabular" id="ins-retry">—</span></div>
+            <div class="kv"><span class="k">Latency</span><span class="v tabular" id="ins-lat">—</span></div>
+          </div>
+        </div>
+        <div class="rail-card">
+          <div class="rail-title">Session</div>
+          <div class="rail-sub">Full log lives on the <a href="/dashboard" style="color:#111; font-weight:700;">dashboard</a>.</div>
+          <div class="kv"><span class="k">Identity</span><span class="v font-mono2" style="font-size:12.5px;" id="ins-sess">—</span></div>
+          <div class="kv"><span class="k">Target</span><span class="v font-mono2" style="font-size:12.5px;" id="ins-target">/api/data</span></div>
+          <div class="kv"><span class="k">Total decisions</span><span class="v tabular" id="ins-total">0</span></div>
+        </div>
+      </div>
+
+      <!-- client -->
+      <div data-panel="client" class="hidden">
+        <div class="rail-card">
+          <div class="rail-title">Client — load controls</div>
+          <div class="rail-sub">This is the traffic source. Point it, then run.</div>
+          <div><label class="field-label">Target endpoint</label>
+            <select id="in-target" class="mt-1"><option value="/api/data">/api/data</option><option value="/api/expensive">/api/expensive</option><option value="/tunnel/">My backend (/tunnel)</option></select></div>
+          <div class="grid grid-cols-2 gap-2 mt-3">
+            <button id="btn-burst" class="btn-ghost" style="padding:11px 6px; font-size:13px;">Burst ×100</button>
+            <button id="btn-conc" class="btn-ghost" style="padding:11px 6px; font-size:13px;">50 concurrent</button>
+          </div>
+          <p style="font-size:12px; color:#666; margin-top:10px; line-height:1.6;">Burst fires 100 real requests at once. Concurrent fires 50 simultaneous — exactly the allowance must succeed.</p>
+        </div>
+      </div>
+
+      <!-- gateway -->
+      <div data-panel="gateway" class="hidden">
+        <div class="rail-card">
+          <div class="rail-title">Gateway — active rule</div>
+          <div class="rail-sub">Edit it in the left rail; it applies on the next request.</div>
+          <div class="kv"><span class="k">Algorithm</span><span class="v" id="ins-algo">token-bucket</span></div>
+          <div class="kv"><span class="k">Parameters</span><span class="v tabular" id="ins-params">—</span></div>
+          <div class="kv"><span class="k">Key strategy</span><span class="v" id="ins-keyby">ip</span></div>
+          <div class="kv"><span class="k">Bucket level</span><span class="v tabular" id="kpi-bucket">—</span></div>
+          <div class="bucket-track"><div class="bucket-fill" id="kpi-bucket-bar" style="width:100%"></div></div>
+        </div>
+      </div>
+
+      <!-- redis -->
+      <div data-panel="redis" class="hidden">
+        <div class="rail-card">
+          <div class="rail-title">Redis — chaos controls</div>
+          <div class="rail-sub" id="ins-redis-state">Shared state is healthy.</div>
+          <button id="btn-kill" class="btn-ghost w-full" style="padding:12px; font-size:14px; font-weight:700;">Kill Redis</button>
+          <div class="mt-3"><div class="flex justify-between mb-1"><span style="font-size:12.5px; color:#424242; font-weight:500;">Injected latency</span><span class="font-poppins tabular" style="font-weight:600; font-size:13px;" id="v-chaoslat">0 ms</span></div>
+          <input id="in-chaoslat" type="range" min="0" max="1000" step="25" value="0"></div>
+          <div class="mt-3"><div class="flex justify-between mb-1"><span style="font-size:12.5px; color:#424242; font-weight:500;">Store timeout</span><span class="font-poppins tabular" style="font-weight:600; font-size:13px;" id="v-timeout">150 ms</span></div>
+          <input id="in-timeout" type="range" min="20" max="1000" step="10" value="150"></div>
+          <div class="grid grid-cols-2 gap-2 mt-3">
+            <div><label class="field-label">On failure</label>
+              <select id="in-fmode" class="mt-1"><option value="fail-closed">fail-closed</option><option value="fail-open">fail-open</option></select></div>
+            <div><label class="field-label">Fallback</label>
+              <select id="in-fallback" class="mt-1"><option value="on">memory ON</option><option value="off">OFF</option></select></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- backend -->
+      <div data-panel="backend" class="hidden">
+        <div class="rail-card">
+          <div class="rail-title">Backend — yours or ours</div>
+          <div class="rail-sub">Allowed requests proxy through; 429s never arrive.</div>
+          <label class="field-label" for="in-backend-url">Your server URL</label>
+          <input id="in-backend-url" type="url" placeholder="https://api.example.com/items" class="mt-1" style="width:100%; background:#fff; border:1.5px solid #C6C6C6; border-radius:10px; padding:10px 12px; font-size:13.5px; font-family:Poppins,sans-serif; color:#1A1A1A;">
+          <div class="grid grid-cols-2 gap-2 mt-2">
+            <button id="btn-save-backend" class="btn-primary" style="padding:11px 6px; font-size:13px;">Save + test</button>
+            <button id="btn-clear-backend" class="btn-ghost" style="padding:11px 6px; font-size:13px;">Disconnect</button>
+          </div>
+          <div id="backend-status" class="font-poppins" style="font-size:12.5px; color:#666; margin-top:10px; line-height:1.6;">No backend connected — <b>/tunnel/*</b> returns 400 until you save one.</div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- ══════════ BOTTOM METRICS STRIP ══════════ -->
+  <footer class="strip" id="strip">
+    <div class="strip-head">
+      <button class="tbtn" id="tog-strip-2" style="height:30px; font-size:12px;" title="Collapse charts">Charts ▾</button>
+      <span style="font-size:12px; color:#666; font-weight:600;" class="font-poppins">60-second window · real decisions</span>
+      <div style="flex:1"></div>
+      <span style="font-size:11.5px; color:#999;" class="font-mono2" id="conn-state">SSE live</span>
+    </div>
+    <div class="strip-charts">
+      <div class="chart-card"><div class="flex items-center justify-between mb-1"><h4>Allowed vs denied / sec</h4><span class="tag">REAL</span></div><div style="height:150px;"><canvas id="ch-traffic"></canvas></div></div>
+      <div class="chart-card"><div class="flex items-center justify-between mb-1"><h4>Decision latency (ms)</h4><span class="tag">AVG / MAX</span></div><div style="height:150px;"><canvas id="ch-latency"></canvas></div></div>
+    </div>
+  </footer>
+</div>
+
+<div id="toasts" class="fixed bottom-5 right-5 space-y-2 z-50"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const state = {
+  algo: 'token-bucket',
+  session: 'lab-' + Math.random().toString(36).slice(2, 8),
+  running: false, rps: 25, timer: null,
+  target: '/api/data',
+  redisDown: false,
+  selected: null,
+  lastSnapshot: null,
+};
+function paintRange(el){ if(!el) return; const p = (el.value - el.min) / (el.max - el.min) * 100; el.style.setProperty('--fill', p + '%'); }
+document.querySelectorAll('input[type=range]').forEach(el => { paintRange(el); el.addEventListener('input', () => paintRange(el)); });
+
+function toast(msg){
+  const d = document.createElement('div');
+  d.className = 'toast'; d.textContent = msg;
+  $('toasts').appendChild(d);
+  setTimeout(()=>{ d.style.opacity='0'; d.style.transition='.4s'; setTimeout(()=>d.remove(), 400); }, 3400);
+}
+function setSession(s){
+  state.session = s;
+  $('sess-label').textContent = s; $('ins-sess').textContent = s; $('topo-sess').textContent = 'id ' + s;
+}
+
+/* ── panel layout (persisted, like a real workbench) ── */
+try {
+  const saved = JSON.parse(localStorage.getItem('ratelimit-lab.layout') || '{}');
+  if (saved.rail === false) document.body.classList.add('hide-rail');
+  if (saved.ins === false) document.body.classList.add('hide-ins');
+  if (saved.strip === false) { $('strip').classList.add('hidden-strip'); $('tog-strip-2').textContent = 'Charts ▸'; }
+} catch {}
+function persistLayout(){
+  try {
+    localStorage.setItem('ratelimit-lab.layout', JSON.stringify({
+      rail: !document.body.classList.contains('hide-rail'),
+      ins: !document.body.classList.contains('hide-ins'),
+      strip: !$('strip').classList.contains('hidden-strip'),
+    }));
+  } catch {}
+}
+function syncToggles(){
+  $('tog-rail').classList.toggle('on', !document.body.classList.contains('hide-rail'));
+  $('tog-ins').classList.toggle('on', !document.body.classList.contains('hide-ins'));
+  $('tog-strip').classList.toggle('on', !$('strip').classList.contains('hidden-strip'));
+}
+$('tog-rail').onclick = () => { document.body.classList.toggle('hide-rail'); syncToggles(); persistLayout(); };
+$('tog-ins').onclick = () => { document.body.classList.toggle('hide-ins'); syncToggles(); persistLayout(); };
+function toggleStrip(){
+  $('strip').classList.toggle('hidden-strip');
+  const hidden = $('strip').classList.contains('hidden-strip');
+  $('tog-strip-2').textContent = hidden ? 'Charts ▸' : 'Charts ▾';
+  syncToggles(); persistLayout();
+  if (!hidden) { trafficChart.resize(); latencyChart.resize(); }
+}
+$('tog-strip').onclick = toggleStrip;
+$('tog-strip-2').onclick = toggleStrip;
+syncToggles();
+
+/* ── selection-driven inspector ── */
+const PANEL_TITLES = { session:'Session', client:'Client — load', gateway:'Gateway — rule', redis:'Redis — chaos', backend:'Backend' };
+function selectNode(id){
+  state.selected = (state.selected === id || !id) ? null : id;
+  const active = state.selected || 'session';
+  document.querySelectorAll('.node[data-node]').forEach(n => n.classList.toggle('selected', n.dataset.node === state.selected));
+  document.querySelectorAll('[data-panel]').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== active));
+  $('ins-title').textContent = PANEL_TITLES[active];
+  if (document.body.classList.contains('hide-ins')) { document.body.classList.remove('hide-ins'); syncToggles(); persistLayout(); }
+}
+document.querySelectorAll('.node[data-node]').forEach(n => {
+  n.addEventListener('click', () => selectNode(n.dataset.node));
+  n.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectNode(n.dataset.node); } });
+});
+$('ins-close').onclick = () => selectNode(null);
+$('btn-chaos').onclick = () => selectNode('redis');
+document.addEventListener('keydown', (e) => {
+  const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName || '');
+  if (e.key === 'Escape') selectNode(null);
+  else if (typing) return;
+  else if (e.code === 'Space') { e.preventDefault(); setRunning(!state.running); }
+  else if (e.key === 'b' || e.key === 'B') burst();
+});
+
+/* ── charts ── */
+Chart.defaults.color = '#666666'; Chart.defaults.font.family = 'Poppins'; Chart.defaults.borderColor = '#EDEDED';
+const GRID = 'rgba(0,0,0,.06)';
+const trafficChart = new Chart($('ch-traffic'), { type:'line',
+  data:{ labels:[], datasets:[
+    { label:'allowed', data:[], borderColor:'#1A1A1A', backgroundColor:'rgba(26,26,26,.08)', fill:true, tension:.4, pointRadius:0, borderWidth:2.5 },
+    { label:'denied 429', data:[], borderColor:'#dc2626', backgroundColor:'rgba(220,38,38,.08)', fill:true, tension:.4, pointRadius:0, borderWidth:2 },
+  ]}, options:{ responsive:true, maintainAspectRatio:false, animation:false,
+    plugins:{ legend:{ labels:{ boxWidth:12, boxHeight:12, usePointStyle:true, pointStyle:'circle', font:{ size:11, weight:'600' } } } },
+    scales:{ x:{ ticks:{ maxTicksLimit:10, font:{ size:10 } }, grid:{ display:false } }, y:{ beginAtZero:true, ticks:{ font:{ size:10 }, precision:0 }, grid:{ color:GRID } } } } });
+const latencyChart = new Chart($('ch-latency'), { type:'line',
+  data:{ labels:[], datasets:[
+    { label:'avg ms', data:[], borderColor:'#1A1A1A', tension:.4, pointRadius:0, borderWidth:2.5 },
+    { label:'max ms', data:[], borderColor:'#999999', borderDash:[6,5], tension:.3, pointRadius:0, borderWidth:1.5 },
+  ]}, options:{ responsive:true, maintainAspectRatio:false, animation:false,
+    plugins:{ legend:{ labels:{ boxWidth:12, boxHeight:12, usePointStyle:true, pointStyle:'circle', font:{ size:11, weight:'600' } } } },
+    scales:{ x:{ ticks:{ maxTicksLimit:10, font:{ size:10 } }, grid:{ display:false } }, y:{ beginAtZero:true, ticks:{ font:{ size:10 } }, grid:{ color:GRID } } } } });
+
+/* ── node sparklines (same metric the node headlines) ── */
+function drawSpark(id, values, color){
+  const el = $(id); if (!el) return;
+  const w = 100, h = 26, n = values.length;
+  if (n < 2) { el.innerHTML = ''; return; }
+  const max = Math.max(...values, 1);
+  const pts = values.map((v, i) => `${(i / (n - 1) * w).toFixed(1)},${(h - 2 - (v / max) * (h - 5)).toFixed(1)}`).join(' ');
+  el.innerHTML = `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>`;
+}
+
+/* ── SSE (real-time) ── */
+let es = null, pollFallback = null;
+function connectSSE(){
+  try { es && es.close(); } catch {}
+  es = new EventSource('/lab/stream');
+  es.addEventListener('snapshot', (e) => render(JSON.parse(e.data)));
+  es.addEventListener('tick', (e) => render(JSON.parse(e.data)));
+  es.onopen = () => { $('conn-state').textContent = 'SSE live'; $('hdr-live').innerHTML = '<span class="live-dot"></span>live · real decisions'; clearInterval(pollFallback); };
+  es.onerror = () => {
+    $('conn-state').textContent = 'reconnecting… (polling)';
+    $('hdr-live').textContent = 'reconnecting…';
+    es.close(); clearInterval(pollFallback);
+    pollFallback = setInterval(async () => { try { const r = await fetch('/lab/status'); const j = await r.json(); if (j.snapshot) render(j.snapshot); } catch {} }, 2000);
+    setTimeout(connectSSE, 4000);
+  };
+}
+
+function ruleSummary(rule){
+  if (rule.algorithm === 'token-bucket') return `${rule.capacity} burst · ${rule.refillRatePerSec}/s`;
+  if (rule.algorithm === 'leaky-bucket') return `${rule.capacity} queue · ${rule.leakRatePerSec}/s`;
+  return `${rule.limit} / ${Math.round(rule.windowMs/1000)}s`;
+}
+
+function render(s){
+  state.lastSnapshot = s;
+  const t = s.totals, r = s.resilience;
+  $('tb-rps').textContent = t.rps;
+  $('tb-allowed').textContent = t.allowed;
+  $('tb-denied').textContent = t.denied;
+  $('tb-p95').innerHTML = `${t.p95Ms}<span style="font-size:12px;">ms</span>`;
+  $('topo-rps').textContent = `${t.rps} rps`;
+  $('topo-backend').textContent = `${t.allowed} proxied`;
+
+  const redisUp = r.redisUp;
+  $('topo-algo').textContent = s.rules.defaultRule.algorithm;
+  $('ins-algo').textContent = s.rules.defaultRule.algorithm;
+  $('ins-params').textContent = ruleSummary(s.rules.defaultRule);
+  $('ins-keyby').textContent = s.rules.keyBy;
+  $('ins-target').textContent = state.target;
+  $('ins-total').textContent = t.total;
+  const rs = $('topo-redis-state');
+  rs.textContent = redisUp ? 'UP' : 'DOWN';
+  rs.style.color = redisUp ? '#111' : '#dc2626';
+  $('topo-redis-label').textContent = redisUp ? 'Redis' : 'Redis · chaos';
+  $('topo-store-sub').textContent = r.useRedis ? (redisUp ? 'shared state' : 'fallback active') : 'memory (local)';
+  $('node-redis').classList.toggle('alert', !redisUp);
+  $('ins-redis-state').textContent = r.useRedis
+    ? (redisUp ? 'Shared state is healthy.' : 'DOWN — decisions are falling back to per-instance memory.')
+    : 'Running in memory mode (no Redis). Start docker compose for the distributed path.';
+  const byob = (s.backend && s.backend.customUrl) || null;
+  $('topo-backend-sub').textContent = byob ? 'custom tunnel' : 'dummy :3001';
+  const bs = $('backend-status');
+  if (bs && !bs.dataset.touched) {
+    bs.innerHTML = byob
+      ? `Connected → <b>${byob}</b> · live traffic to <b>/tunnel/*</b> now guards your server.`
+      : 'No backend connected — <b>/tunnel/*</b> returns 400 until you save one.';
+  }
+
+  const lastEv = (s.recent && s.recent[0]) || null;
+  if (lastEv) {
+    $('ins-verdict').innerHTML = lastEv.allowed ? '<b>ALLOW · 200</b>' : '<b style="color:#dc2626;">DENY · 429</b>';
+    if (lastEv.fallback) $('ins-verdict').innerHTML += ' <b style="font-size:11px;">FALLBACK</b>';
+    $('ins-route').textContent = lastEv.route;
+    $('ins-key').textContent = lastEv.key;
+    $('ins-limit').textContent = `${lastEv.limit} / ${lastEv.remaining}`;
+    $('ins-retry').textContent = lastEv.allowed ? '—' : Math.ceil(lastEv.retryAfterMs/1000) + 's';
+    $('ins-lat').textContent = lastEv.latencyMs + 'ms';
+    if (lastEv.limit > 0) {
+      const frac = Math.max(0, Math.min(1, lastEv.remaining / lastEv.limit));
+      $('kpi-bucket').textContent = `${lastEv.remaining}/${lastEv.limit}`;
+      $('kpi-bucket-bar').style.width = (frac * 100) + '%';
+    }
+  }
+
+  const win = s.series.slice(-40);
+  drawSpark('spark-client', win.map(p => p.allowed + p.denied), '#1A1A1A');
+  drawSpark('spark-gateway', win.map(p => p.allowed + p.denied), '#FFFFFF');
+  drawSpark('spark-redis', win.map(p => p.fallback), '#dc2626');
+  drawSpark('spark-backend', win.map(p => p.allowed), '#1A1A1A');
+
+  const labels = s.series.map(p => new Date(p.t).toLocaleTimeString([], { minute:'2-digit', second:'2-digit' }));
+  trafficChart.data.labels = labels;
+  trafficChart.data.datasets[0].data = s.series.map(p => p.allowed);
+  trafficChart.data.datasets[1].data = s.series.map(p => p.denied);
+  trafficChart.update('none');
+  latencyChart.data.labels = labels;
+  latencyChart.data.datasets[0].data = s.series.map(p => p.avgMs);
+  latencyChart.data.datasets[1].data = s.series.map(p => p.maxMs);
+  latencyChart.update('none');
+}
+
+/* ── real traffic generator ── */
+function spawnDot(kind){
+  const lane = $('flow-lane');
+  const empty = $('lane-empty'); if (empty) empty.style.display = 'none';
+  const d = document.createElement('div');
+  d.className = 'flow-dot';
+  if (kind === 'allow') { d.style.background = '#1A1A1A'; }
+  else if (kind === 'deny') { d.style.background = '#fff'; d.style.borderColor = '#dc2626'; d.style.borderWidth = '3px'; }
+  else { d.style.background = '#fff'; d.style.borderColor = '#1A1A1A'; d.style.borderWidth = '3px'; }
+  d.style.left = '16px';
+  lane.appendChild(d);
+  const w = lane.clientWidth - 36;
+  const anim = d.animate([{ left:'16px', opacity:1 }, { left: w + 'px', opacity:.9 }], { duration: 1100 + Math.random()*500, easing:'cubic-bezier(.3,.7,.4,1)' });
+  anim.onfinish = () => d.remove();
+  setTimeout(() => { try { d.remove(); } catch {} }, 2000);
+}
+
+async function fireOne(){
+  const t0 = performance.now();
+  try {
+    const res = await fetch(state.target, { headers: { 'x-api-key': state.session } });
+    const ms = Math.round((performance.now() - t0) * 10) / 10;
+    const remain = res.headers.get('x-ratelimit-remaining');
+    const retry = res.headers.get('retry-after');
+    $('last-status').innerHTML = res.status === 200 ? '200 OK' : '<span style="color:#dc2626;">429</span>';
+    $('last-status').style.color = res.status === 200 ? '#111' : '#dc2626';
+    $('last-remaining').textContent = remain ?? '—';
+    $('last-retry').textContent = res.status === 429 ? (retry ? retry + 's' : '—') : '—';
+    $('last-ms').textContent = ms + ' ms';
+    spawnDot(res.status === 200 ? 'allow' : 'deny');
+  } catch (e) { spawnDot('deny'); $('last-status').textContent = 'ERR'; }
+}
+
+function tickTraffic(){
+  if (!state.running) return;
+  const batch = Math.max(1, Math.round(state.rps * 0.2));
+  for (let i = 0; i < batch; i++) fireOne();
+}
+function setRunning(on){
+  state.running = on;
+  $('btn-play-label').textContent = on ? 'Stop' : 'Run';
+  $('btn-play').classList.toggle('primary', !on);
+  $('ic-play').style.display = on ? 'none' : '';
+  $('ic-pause').style.display = on ? '' : 'none';
+  clearInterval(state.timer);
+  if (on) { state.timer = setInterval(tickTraffic, 200); tickTraffic(); toast(`Live load: ${state.rps} rps → ${state.target}`); }
+}
+async function burst(){
+  toast('Burst: 100 real requests at once');
+  const ps = []; for (let i = 0; i < 100; i++) ps.push(fireOne());
+  await Promise.all(ps);
+}
+
+$('btn-play').onclick = () => setRunning(!state.running);
+$('btn-step').onclick = async () => { const ps = []; for (let i = 0; i < 10; i++) ps.push(fireOne()); await Promise.all(ps); };
+$('in-rps').oninput = (e) => { state.rps = +e.target.value; $('v-rps').textContent = state.rps + ' rps'; };
+$('in-target').onchange = (e) => {
+  state.target = e.target.value;
+  if (state.target === '/tunnel/' && !(state.lastSnapshot && state.lastSnapshot.backend && state.lastSnapshot.backend.customUrl)) {
+    toast('Tip: save your backend URL in the Backend panel first');
+    selectNode('backend');
+  }
+};
+$('btn-conc').onclick = async () => { toast('Concurrency probe: 50 simultaneous → allowance must hold exactly'); const ps = []; for (let i = 0; i < 50; i++) ps.push(fireOne()); await Promise.all(ps); };
+$('btn-newsess').onclick = () => { setSession('lab-' + Math.random().toString(36).slice(2,8)); toast('New identity — fresh bucket'); };
+
+/* ── algorithm cards ── */
+document.querySelectorAll('.algo-card').forEach(card => {
+  card.addEventListener('click', () => {
+    document.querySelectorAll('.algo-card').forEach(c => c.classList.remove('active'));
+    card.classList.add('active');
+    state.algo = card.dataset.algo;
+    const isWindow = state.algo === 'fixed-window' || state.algo === 'sliding-window';
+    const isLeaky = state.algo === 'leaky-bucket';
+    $('params-token').classList.toggle('hidden', isWindow || isLeaky);
+    $('params-window').classList.toggle('hidden', !isWindow);
+    $('params-leaky').classList.toggle('hidden', !isLeaky);
+  });
+});
+$('in-cap').oninput = e => $('v-cap').textContent = e.target.value;
+$('in-refill').oninput = e => $('v-refill').textContent = e.target.value;
+$('in-limit').oninput = e => $('v-limit').textContent = e.target.value;
+$('in-window').oninput = e => $('v-window').textContent = e.target.value + 's';
+$('in-lcap').oninput = e => $('v-lcap').textContent = e.target.value;
+$('in-leak').oninput = e => $('v-leak').textContent = e.target.value;
+
+function buildRule(){
+  const a = state.algo;
+  if (a === 'token-bucket') return { algorithm:a, capacity:+$('in-cap').value, refillRatePerSec:+$('in-refill').value, keyPrefix:'rl' };
+  if (a === 'leaky-bucket') return { algorithm:a, capacity:+$('in-lcap').value, leakRatePerSec:+$('in-leak').value, keyPrefix:'rl' };
+  return { algorithm:a, limit:+$('in-limit').value, windowMs:+$('in-window').value*1000, keyPrefix:'rl' };
+}
+$('btn-apply').onclick = async () => {
+  const rule = buildRule();
+  const keyBy = $('in-keyby').value;
+  const res = await fetch('/lab/config', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ defaultRule: rule, keyBy }) });
+  const j = await res.json();
+  if (j.ok) toast(`Rule live: ${rule.algorithm} · key=${keyBy}`);
+  else toast('Invalid rule rejected');
+};
+
+/* ── chaos ── */
+async function postChaos(patch){
+  const res = await fetch('/lab/chaos', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(patch) });
+  return res.json();
+}
+$('btn-kill').onclick = async () => {
+  state.redisDown = !state.redisDown;
+  await postChaos({ redisDown: state.redisDown });
+  $('btn-kill').textContent = state.redisDown ? 'Heal Redis' : 'Kill Redis';
+  $('btn-kill').classList.toggle('btn-danger-active', state.redisDown);
+  toast(state.redisDown ? 'Redis DOWN — real fallback path engaged' : 'Redis healed');
+};
+$('in-chaoslat').oninput = async (e) => { $('v-chaoslat').textContent = e.target.value + ' ms'; await postChaos({ addedLatencyMs:+e.target.value }); };
+$('in-timeout').oninput = async (e) => { $('v-timeout').textContent = e.target.value + ' ms'; await postChaos({ timeoutMs:+e.target.value }); };
+$('in-fmode').onchange = async (e) => { await postChaos({ failureMode: e.target.value }); toast('Failure mode: ' + e.target.value); };
+$('in-fallback').onchange = async (e) => { await postChaos({ enableFallback: e.target.value === 'on' }); };
+$('btn-reset').onclick = async () => {
+  state.redisDown = false; $('btn-kill').textContent = 'Kill Redis'; $('btn-kill').classList.remove('btn-danger-active');
+  $('in-chaoslat').value = 0; $('v-chaoslat').textContent = '0 ms'; paintRange($('in-chaoslat'));
+  await postChaos({ redisDown:false, addedLatencyMs:0 });
+  await fetch('/lab/reset', { method:'POST' });
+  setSession('lab-' + Math.random().toString(36).slice(2,8));
+  toast('Counters cleared · Redis healed · fresh identity');
+};
+
+/* ── presets ── */
+document.querySelectorAll('#preset-box button').forEach(btn => {
+  btn.onclick = async () => {
+    const id = btn.dataset.preset;
+    const r = await fetch('/lab/presets'); const j = await r.json();
+    const p = (j.presets || []).find(x => x.id === id);
+    if (!p) return;
+    if (p.defaultRule) {
+      await fetch('/lab/config', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ defaultRule: p.defaultRule }) });
+      const a = p.defaultRule.algorithm;
+      document.querySelector(`.algo-card[data-algo="${a}"]`)?.click();
+      if (a === 'token-bucket') { $('in-cap').value = p.defaultRule.capacity; $('v-cap').textContent = p.defaultRule.capacity; $('in-refill').value = p.defaultRule.refillRatePerSec; $('v-refill').textContent = p.defaultRule.refillRatePerSec; }
+      else if (a === 'leaky-bucket') { $('in-lcap').value = p.defaultRule.capacity; $('v-lcap').textContent = p.defaultRule.capacity; $('in-leak').value = p.defaultRule.leakRatePerSec; $('v-leak').textContent = p.defaultRule.leakRatePerSec; }
+      else { $('in-limit').value = p.defaultRule.limit; $('v-limit').textContent = p.defaultRule.limit; $('in-window').value = Math.round(p.defaultRule.windowMs/1000); $('v-window').textContent = Math.round(p.defaultRule.windowMs/1000)+'s'; }
+      document.querySelectorAll('input[type=range]').forEach(paintRange);
+    }
+    if (p.chaos) { state.redisDown = !!p.chaos.redisDown; await postChaos(p.chaos); $('btn-kill').textContent = state.redisDown ? 'Heal Redis' : 'Kill Redis'; $('btn-kill').classList.toggle('btn-danger-active', state.redisDown); }
+    else if (id !== 'redis-outage' && state.redisDown) { state.redisDown = false; await postChaos({ redisDown:false }); $('btn-kill').textContent = 'Kill Redis'; $('btn-kill').classList.remove('btn-danger-active'); }
+    if (p.rps) { state.rps = p.rps; $('in-rps').value = p.rps; $('v-rps').textContent = p.rps + ' rps'; paintRange($('in-rps')); }
+    if (id === 'expensive-api') { state.target = '/api/expensive'; $('in-target').value = '/api/expensive'; }
+    setRunning(true);
+    toast(`Preset live: ${p.name}`);
+  };
+});
+
+/* ── bring your own backend ── */
+$('btn-save-backend').onclick = async () => {
+  const url = $('in-backend-url').value.trim();
+  if (!url) { toast('Paste your server URL first'); return; }
+  const res = await fetch('/lab/backend', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ url }) });
+  const j = await res.json();
+  $('backend-status').dataset.touched = '1';
+  if (!j.ok) { $('backend-status').innerHTML = `<span style="color:#dc2626; font-weight:600;">Rejected:</span> ${j.error}`; toast('Backend rejected'); return; }
+  $('backend-status').innerHTML = `Testing <b>${j.backend.customUrl}</b> …`;
+  try {
+    const t0 = performance.now();
+    const t = await fetch('/tunnel/', { headers: { 'x-api-key': state.session } });
+    const ms = Math.round(performance.now() - t0);
+    if (t.status === 429) {
+      $('backend-status').innerHTML = `Connected → <b>${j.backend.customUrl}</b> · test call was 429 (bucket spent — New identity and retry).`;
+    } else {
+      $('backend-status').innerHTML = `Connected → <b>${j.backend.customUrl}</b> · upstream answered <b>${t.status}</b> in ${ms}ms. Set target to <b>/tunnel</b>.`;
+    }
+    state.target = '/tunnel/'; $('in-target').value = '/tunnel/';
+    toast('Backend connected — target switched to /tunnel');
+  } catch (e) {
+    $('backend-status').innerHTML = `Connected → <b>${j.backend.customUrl}</b> · test request failed to reach the Lab itself.`;
+  }
+};
+$('btn-clear-backend').onclick = async () => {
+  await fetch('/lab/backend', { method:'DELETE' });
+  $('backend-status').dataset.touched = '';
+  $('in-backend-url').value = '';
+  if (state.target === '/tunnel/') { state.target = '/api/data'; $('in-target').value = '/api/data'; }
+  toast('Backend disconnected');
+};
+
+/* ── init ── */
+setSession(state.session);
+connectSSE();
+fetch('/lab/config').then(r => r.json()).then(j => {
+  if (j.defaultRule) {
+    state.algo = j.defaultRule.algorithm;
+    document.querySelector(`.algo-card[data-algo="${state.algo}"]`)?.click();
+  }
+  if (j.keyBy) $('in-keyby').value = j.keyBy;
+}).catch(()=>{});
+</script>
+</body>
+</html>
