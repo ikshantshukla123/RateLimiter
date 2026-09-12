@@ -54,6 +54,20 @@ export class RateLimiter {
     return this;
   }
 
+  /** Live-update resilience knobs (used by the Lab dashboard, no restart). */
+  updateResilience(patch: { failureMode?: FailureMode; timeoutMs?: number; enableFallback?: boolean }): void {
+    const mutable = this as unknown as {
+      failureMode: FailureMode;
+      timeoutMs: number;
+      enableFallback: boolean;
+    };
+    if (patch.failureMode) mutable.failureMode = patch.failureMode;
+    if (typeof patch.timeoutMs === 'number' && Number.isFinite(patch.timeoutMs)) {
+      mutable.timeoutMs = Math.max(20, Math.min(2000, Math.floor(patch.timeoutMs)));
+    }
+    if (typeof patch.enableFallback === 'boolean') mutable.enableFallback = patch.enableFallback;
+  }
+
   static buildKey(prefix: string | undefined, key: string): string {
     const clean = key.trim();
     if (!clean) throw new ValidationError('rate-limit key must be a non-empty string');

@@ -1,6 +1,7 @@
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import type { RateLimiter } from '../../core/rate-limiter';
 import type { RateLimitRule } from '../../core/types';
+import { recordLabDecision } from '../../lab/lab-state';
 import type { MetricsRecorder } from '../../observability/metrics';
 
 export type KeySource = 'ip' | 'apiKey' | 'userId' | 'route';
@@ -15,8 +16,16 @@ export interface RateLimitMiddlewareOptions {
   metrics?: MetricsRecorder;
 }
 
+/** Full request path (`/api/data`), stable even when mounted under a router. */
+export function fullPath(req: Request): string {
+  const raw = req.originalUrl ?? req.path ?? '/';
+  const q = raw.indexOf('?');
+  return q >= 0 ? raw.slice(0, q) : raw;
+}
+
 /** Explicit, testable key-selection strategy (agent.md §10). */
 export function resolveKey(req: Request, keyBy: KeySource = 'ip'): string {
+  const path = fullPath(req);
   switch (keyBy) {
     case 'apiKey': {
       const fromHeader = req.header('x-api-key');
@@ -31,7 +40,7 @@ export function resolveKey(req: Request, keyBy: KeySource = 'ip'): string {
       break;
     }
     case 'route':
-      return `route:${req.path}`;
+      return `route:${path}`;
     case 'ip':
     default:
       break;
@@ -39,15 +48,16 @@ export function resolveKey(req: Request, keyBy: KeySource = 'ip'): string {
   // Default / fallback: IP. req.ip is Express-aware (trust proxy settings).
   // Combine route + identity so one abusive route does not starve others.
   const ip = req.ip ?? req.socket?.remoteAddress ?? 'unknown';
-  return `${keyBy}:${ip}:${req.path}`;
+  return `${keyBy}:${ip}:${path}`;
 }
 
 function resolveRule(req: Request, options: RateLimitMiddlewareOptions): RateLimitRule | undefined {
   if (options.routeRules) {
+    const path = fullPath(req);
     // Longest-prefix match so `/api/v1` beats `/api`.
     const entries = Object.entries(options.routeRules).sort((a, b) => b[0].length - a[0].length);
     for (const [prefix, rule] of entries) {
-      if (req.path.startsWith(prefix)) return rule;
+      if (path.startsWith(prefix)) return rule;
     }
   }
   return options.defaultRule;
@@ -75,12 +85,32 @@ export function createRateLimitMiddleware(options: RateLimitMiddlewareOptions): 
       return;
     }
     const key = resolveKey(req, options.keyBy ?? 'ip');
+    const path = fullPath(req);
     const started = process.hrtime.bigint();
     try {
       const result = await options.limiter.check({ key, rule });
       const elapsedSec = Number(process.hrtime.bigint() - started) / 1e9;
-      metrics?.observeDecision(rule.algorithm, req.path, result.allowed);
+      metrics?.observeDecision(rule.algorithm, path, result.allowed);
       metrics?.observeLatency(rule.algorithm, elapsedSec);
+      // Real-time Lab feed (never blocks the response path).
+      try {
+        recordLabDecision({
+          t: Date.now(),
+          key,
+          route: path,
+          algorithm: rule.algorithm,
+          allowed: result.allowed,
+          remaining: result.remaining,
+          limit: result.limit,
+          retryAfterMs: result.retryAfterMs,
+          resetMs: result.resetMs,
+          latencyMs: Math.round(elapsedSec * 1000 * 100) / 100,
+          fallback: false,
+          store: 'primary',
+        });
+      } catch {
+        // lab feed must never break gateway responses
+      }
       setRateLimitHeaders(res, result);
       if (!result.allowed) {
         res.setHeader('Retry-After', String(Math.max(1, Math.ceil(result.retryAfterMs / 1000))));

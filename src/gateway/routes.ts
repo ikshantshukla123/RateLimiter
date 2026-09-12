@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import type { RateLimiter } from '../core/rate-limiter';
+import { labState } from '../lab/lab-state';
 import type { MetricsRecorder } from '../observability/metrics';
 import { createRateLimitMiddleware } from './middleware/rate-limit-middleware';
 import { dummyBackendResponse } from './proxy/proxy';
@@ -23,28 +24,19 @@ export function buildRoutes(options: RoutesOptions = {}): Router {
   });
 
   if (options.limiter) {
-    router.use(
-      '/api/',
-      createRateLimitMiddleware({
-        limiter: options.limiter,
+    // Lab-aware: rules + key strategy resolve live per request so the
+    // dashboard sliders apply instantly with no restart.
+    router.use('/api/', (req, _res, next) => {
+      const live = labState.getRules();
+      const mw = createRateLimitMiddleware({
+        limiter: options.limiter!,
         metrics: options.metrics,
-        keyBy: 'ip',
-        defaultRule: {
-          algorithm: 'token-bucket',
-          capacity: 20,
-          refillRatePerSec: 2,
-          keyPrefix: 'rl',
-        },
-        routeRules: {
-          '/api/expensive': {
-            algorithm: 'fixed-window',
-            limit: 5,
-            windowMs: 60_000,
-            keyPrefix: 'rl',
-          },
-        },
-      }),
-    );
+        keyBy: live.keyBy,
+        defaultRule: live.defaultRule,
+        routeRules: { '/api/expensive': live.expensiveRule },
+      });
+      mw(req, _res, next);
+    });
   }
 
   router.get('/api/data', (req, res) => {
