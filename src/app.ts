@@ -3,6 +3,8 @@ import { registerAllAlgorithms } from './algorithms';
 import { loadConfig } from './config';
 import { RateLimiter } from './core/rate-limiter';
 import { createServer } from './gateway/server';
+import { withChaos } from './lab/chaos-store';
+import { labState } from './lab/lab-state';
 import { withMetrics } from './observability/instrumented-store';
 import { logger } from './observability/logger';
 import { PrometheusMetrics } from './observability/metrics';
@@ -20,7 +22,15 @@ const rawPrimary: Store = useRedis ? new RedisStore({ redisUrl: config.redisUrl 
 const rawFallback: Store | undefined = useRedis ? new MemoryStore() : undefined;
 if (useRedis) logger.info({ fallback: 'memory' }, 'using Redis primary with memory fallback');
 
-const primary = withMetrics(rawPrimary, metrics);
+// Lab init: dashboard reads/writes these live (no restart needed).
+labState.storeName = rawPrimary.name;
+labState.useRedis = useRedis;
+labState.failureMode = config.failureMode;
+labState.timeoutMs = config.storeTimeoutMs;
+labState.enableFallback = config.enableFallback && !!rawFallback;
+
+const chaosPrimary = withChaos(rawPrimary);
+const primary = withMetrics(chaosPrimary, metrics);
 const fallback = rawFallback ? withMetrics(rawFallback, metrics) : undefined;
 
 const limiter = registerAllAlgorithms(
@@ -32,11 +42,20 @@ const limiter = registerAllAlgorithms(
     timeoutMs: config.storeTimeoutMs,
     enableFallback: config.enableFallback && !!fallback,
     logger,
-    onFallback: (e) => metrics.observeFallback(e.from, e.to),
+    onFallback: (e) => {
+      metrics.observeFallback(e.from, e.to);
+      labState.recordFallbackOnly();
+    },
   }),
 );
 
-const app = createServer({ limiter, backendUrl: config.backendUrl, enableProxy: true, metrics });
+const applyResilience: (patch: {
+  failureMode?: 'fail-open' | 'fail-closed';
+  timeoutMs?: number;
+  enableFallback?: boolean;
+}) => void = (patch) => limiter.updateResilience(patch);
+
+const app = createServer({ limiter, backendUrl: config.backendUrl, enableProxy: true, metrics, applyResilience });
 
 if (require.main === module) {
   app.listen(config.port, () => {

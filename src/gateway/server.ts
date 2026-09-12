@@ -1,10 +1,13 @@
 import express from 'express';
+import path from 'node:path';
 import pinoHttp from 'pino-http';
 import type { RateLimiter } from '../core/rate-limiter';
+import { buildLabRouter } from '../lab/lab-router';
 import { logger } from '../observability/logger';
 import type { MetricsRecorder } from '../observability/metrics';
 import { PrometheusMetrics } from '../observability/metrics';
 import { mountProxy } from './proxy/proxy';
+import { mountTunnel } from './proxy/proxy';
 import { buildRoutes } from './routes';
 
 export interface ServerOptions {
@@ -12,6 +15,11 @@ export interface ServerOptions {
   backendUrl?: string;
   enableProxy?: boolean;
   metrics?: MetricsRecorder;
+  applyResilience?: (patch: {
+    failureMode?: 'fail-open' | 'fail-closed';
+    timeoutMs?: number;
+    enableFallback?: boolean;
+  }) => void;
 }
 
 export function createServer(options: ServerOptions = {}): express.Express {
@@ -21,11 +29,25 @@ export function createServer(options: ServerOptions = {}): express.Express {
   // Structured JSON request logs (silent in tests via logger).
   app.use(pinoHttp({ logger }));
 
+  // Lab dashboard (real-time control plane). Static assets live in /public.
+  const publicDir = path.join(__dirname, '..', '..', 'public');
+  app.use(express.static(publicDir));
+  app.get('/lab', (_req, res) => {
+    res.sendFile(path.join(publicDir, 'lab.html'));
+  });
+  app.get('/dashboard', (_req, res) => {
+    res.sendFile(path.join(publicDir, 'dashboard.html'));
+  });
+  app.use('/', buildLabRouter({ limiter: options.limiter, applyResilience: options.applyResilience }));
+
   if (options.enableProxy && options.backendUrl) {
     mountProxy(app, options.backendUrl);
   }
 
   app.use('/', buildRoutes({ limiter: options.limiter, metrics: options.metrics }));
+
+  // Bring-your-own-backend tunnel (rate-limited, target set live via /lab/backend).
+  mountTunnel(app, { limiter: options.limiter, metrics: options.metrics });
 
   // Prometheus scrape target. Never rate-limited; placed after buildRoutes on
   // purpose (buildRoutes only limits /api/*) but registered before 404.
@@ -48,8 +70,8 @@ export function createServer(options: ServerOptions = {}): express.Express {
   app.use((_req, res) => {
     res.status(404).json({ error: 'Not Found' });
   });
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    void _next;
     const message = err instanceof Error ? err.message : 'Unknown error';
     res.status(500).json({ error: 'Internal Server Error', message });
   });
